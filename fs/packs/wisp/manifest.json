@@ -17,26 +17,26 @@
         2,
         3
       ],
-      "sleep": [
-        4
-      ],
-      "eat": [
-        5,
+      "idle_happy": [
+        4,
         0
       ],
       "play": [
-        6,
+        4,
         0
       ],
-      "idle_happy": [
-        6,
+      "sleep": [
+        6
+      ],
+      "eat": [
+        7,
         0
       ],
       "idle_sad": [
-        7
+        5
       ],
       "idle_hungry": [
-        7
+        5
       ]
     }
   }

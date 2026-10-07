@@ -4,7 +4,8 @@
 //
 //   deskpet_headless [--fs fs] [--out shots] [--seed 7]
 //   deskpet_headless --preview <pack-id> [--room id] [--weather rain] [--hour 21]
-//                                          screenshots of a pack/room, no gate
+//                                          screenshots of a pack/room (plus 16
+//                                          consecutive anim_NN frames), no gate
 #include <cstdio>
 #include <cstring>
 #include <filesystem>
@@ -131,6 +132,13 @@ int main(int argc, char** argv) {
     }
     h.ticks(30);
     shot("preview_house");
+    // One shot per tick, to check the animation actually moves.
+    for (int i = 0; i < 16; ++i) {
+      h.ticks(1);
+      char name[32];
+      std::snprintf(name, sizeof(name), "anim_%02d", i);
+      shot(name);
+    }
     h.gesture(Gesture::SwipeUp);
     h.gesture(Gesture::Tap, 164, 162);  // WALK
     h.until([&] { return e.world().view().scene == SceneId::Yard; }, 80);

@@ -360,7 +360,10 @@ void drawPet(Canvas& c, const LoadedPack& pack, const ActorView& a, const PetLoo
   if (!an) return;
   const int s = pack.cfg.spriteScale;
   const int w = pack.sprite.w * s, h = pack.sprite.h * s;
-  const int frame = an->frames[(a.activity == Activity::Walking ? a.walkFrame : a.tick) % an->frames.size()];
+  // Classic two-frame walks follow the walk cycle; longer animations (e.g.
+  // from an animated GIF) play one frame per tick in every state.
+  const bool twoStep = a.activity == Activity::Walking && an->frames.size() == 2;
+  const int frame = an->frames[(twoStep ? a.walkFrame : a.tick) % an->frames.size()];
   const int top = a.groundY - a.hop - h;
   c.image(pack.sprite, frame, a.x - w / 2, top, s, a.facing < 0, true);
   drawEffects(c, a, a.x, top);

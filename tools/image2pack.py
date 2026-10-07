@@ -137,15 +137,25 @@ def main():
     def add(im):
         frames.append(im)
         return len(frames) - 1
+    animations = {}
     if len(idle) == 1:
-        idle_anim = [0, add(shifted(base, 1))]
+        # One still picture: make movement by bobbing, squashing and dimming it.
+        animations["idle"] = [0, add(shifted(base, 1))]
+        animations["walk"] = [add(squashed(base, 0.94)), add(shifted(base, 2))]
+        happy = [add(shifted(base, 3)), 0]
+        animations["idle_happy"] = happy
+        animations["play"] = happy
+        sad = [add(dimmed(base, 0.8))]
     else:
-        idle_anim = list(range(len(idle)))
-    walk = [add(squashed(base, 0.94)), add(shifted(base, 2))]
-    sleep = [add(dimmed(squashed(base, 0.7)))]
-    eat = [add(squashed(base, 0.88)), 0]
-    happy = [add(shifted(base, 3)), 0]
-    sad = [add(dimmed(base, 0.8))]
+        # Animated GIF: keep its own motion in every state.
+        animations["idle"] = list(range(len(idle)))
+        animations["walk"] = [add(shifted(f, 2 if i % 2 else 0)) for i, f in enumerate(idle)]
+        animations["play"] = [add(shifted(f, 4 if i % 2 else 1)) for i, f in enumerate(idle[::2])]
+        sad = [add(dimmed(f, 0.8)) for f in idle[::2]]
+    animations["sleep"] = [add(dimmed(squashed(base, 0.7)))]
+    animations["eat"] = [add(squashed(base, 0.88)), 0]
+    animations["idle_sad"] = sad
+    animations["idle_hungry"] = sad
 
     sheet = Image.new("RGBA", (a.size * len(frames), a.size), (0, 0, 0, 0))
     for i, f in enumerate(frames):
@@ -167,16 +177,7 @@ def main():
             "scale": a.scale,
             "body": body,
             "outline": body,
-            "animations": {
-                "idle": idle_anim,
-                "walk": walk,
-                "sleep": sleep,
-                "eat": eat,
-                "play": happy,
-                "idle_happy": happy,
-                "idle_sad": sad,
-                "idle_hungry": sad,
-            },
+            "animations": animations,
         },
     }
     with open(os.path.join(out, "manifest.json"), "w") as f:
