@@ -38,6 +38,12 @@ drag to swipe). Keyboard shortcuts:
 Room editor: open Settings › UPLOAD (or start with `--edit`), then go to
 http://localhost:8080 and drag the sliders. The pet's room updates live.
 
+Pokémon pets: `python3 pokemon_tomo_packs/make_packs.py` builds Gastly,
+Haunter, Gengar and Shiny Gengar on your machine. Run one with
+`./build/deskpet_sim --packs pokemon_tomo_packs/packs --pack gengar --room haunted`.
+The builder and list are in git, but the sprites stay local. See
+[pokemon_tomo_packs/README.md](pokemon_tomo_packs/README.md).
+
 Mock meetings come from `mock/calendar.json`. It uses the same shape the
 Apps Script returns, and the simulator re-reads it every minute.
 
@@ -61,7 +67,9 @@ platform/pc/       PC HAL + headless gate runner
 platform/sim/      SDL2 simulator
 platform/esp32/    ESP32-C3 HAL: LovyanGFX GC9A01 + CST816, LittleFS, Wi-Fi, BLE
 fs/                LittleFS image: packs/ (pets), rooms/ (house+yard themes), untracked secrets.json
-tools/             png2dps.py, image2pack.py (picture -> pet), image2room.py (pictures -> room)
+tools/             png2dps.py, image2pack.py (picture -> pet), image2room.py (pictures -> room),
+                   stage_fs.py (pick pets/room for one device's LittleFS image)
+pokemon_tomo_packs/  list + builder for local-only Pokémon pets
 integrations/      Google Apps Script calendar feed, secrets example
 tests/             unit tests (pet rules, alerts, gestures, untrusted pack parsing)
 docs/              architecture & migration, pack format, hardware bring-up

@@ -3,7 +3,7 @@
 // writes screenshots of every screen. Exit code != 0 if the gate fails.
 //
 //   deskpet_headless [--fs fs] [--out shots] [--seed 7]
-//   deskpet_headless --preview <pack-id> [--room id] [--weather rain] [--hour 21]
+//   deskpet_headless --preview <pack-id> [--packs DIR] [--room id] [--weather rain] [--hour 21]
 //                                          screenshots of a pack/room (plus 16
 //                                          consecutive anim_NN frames), no gate
 #include <cstdio>
@@ -11,6 +11,7 @@
 #include <filesystem>
 #include <functional>
 #include <string>
+#include <vector>
 
 #include "deskpet/engine.h"
 #include "pc_platform.h"
@@ -88,6 +89,7 @@ int main(int argc, char** argv) {
   std::string fsRoot = "fs", out = "shots";
   uint32_t seed = 7;
   std::string preview, room, weatherArg;
+  std::vector<std::string> packDirs;
   int hour = -1;
   for (int i = 1; i + 1 < argc; i += 2) {
     if (!std::strcmp(argv[i], "--fs")) fsRoot = argv[i + 1];
@@ -95,6 +97,7 @@ int main(int argc, char** argv) {
     else if (!std::strcmp(argv[i], "--seed")) seed = static_cast<uint32_t>(std::atoi(argv[i + 1]));
     else if (!std::strcmp(argv[i], "--preview")) preview = argv[i + 1];
     else if (!std::strcmp(argv[i], "--room")) room = argv[i + 1];
+    else if (!std::strcmp(argv[i], "--packs")) packDirs.push_back(argv[i + 1]);
     else if (!std::strcmp(argv[i], "--weather")) weatherArg = argv[i + 1];
     else if (!std::strcmp(argv[i], "--hour")) hour = std::atoi(argv[i + 1]);
   }
@@ -104,6 +107,7 @@ int main(int argc, char** argv) {
   std::filesystem::create_directories(state);
 
   Harness h(fsRoot, state, seed);
+  for (const std::string& d : packDirs) h.storage.addPackDir(d);
   Engine& e = h.engine;
   auto shot = [&](const char* name) {
     std::string p = out + "/" + name + ".ppm";

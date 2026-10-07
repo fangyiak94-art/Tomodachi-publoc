@@ -15,7 +15,10 @@
 // The room editor is served at http://localhost:8080 while Settings > UPLOAD
 // is open (or while "EDIT" shows on the home screen).
 //
-//   deskpet_sim [--edit] [--fs fs] [--state .deskpet-state] [--calendar mock/calendar.json] [--port 8080]
+// Extra pet folders (e.g. generated Pokemon packs) and a starting pet/room:
+//   deskpet_sim --packs pokemon_tomo_packs/packs --pack gengar --room haunted
+//
+//   deskpet_sim [--edit] [--packs DIR]... [--pack ID] [--room ID] [--fs fs] [--state .deskpet-state] [--calendar mock/calendar.json] [--port 8080]
 #include <SDL.h>
 
 #include <atomic>
@@ -25,6 +28,7 @@
 #include <ctime>
 #include <filesystem>
 #include <string>
+#include <vector>
 
 #include "deskpet/engine.h"
 #include "http_portal.h"
@@ -113,6 +117,8 @@ int main(int argc, char** argv) {
   std::string fsRoot = "fs", state = ".deskpet-state", calendarPath = "mock/calendar.json";
   int port = 8080;
   bool edit = false;
+  std::vector<std::string> packDirs;
+  std::string startPack, startRoom;
   for (int i = 1; i < argc; ++i) {
     auto value = [&](const char* flag) { return !std::strcmp(argv[i], flag) && i + 1 < argc; };
     if (!std::strcmp(argv[i], "--edit")) edit = true;  // open the room editor at start
@@ -120,6 +126,9 @@ int main(int argc, char** argv) {
     else if (value("--state")) state = argv[++i];
     else if (value("--calendar")) calendarPath = argv[++i];
     else if (value("--port")) port = std::atoi(argv[++i]);
+    else if (value("--packs")) packDirs.push_back(argv[++i]);  // extra pet folder, repeatable
+    else if (value("--pack")) startPack = argv[++i];
+    else if (value("--room")) startRoom = argv[++i];
     else {
       std::fprintf(stderr, "unknown argument %s\n", argv[i]);
       return 1;
@@ -149,6 +158,13 @@ int main(int argc, char** argv) {
   pc::DirStorage storage(fsRoot);
   std::filesystem::create_directories(state);
   storage.setWriteRoot(state);
+  for (const std::string& d : packDirs) {
+    if (!std::filesystem::is_directory(d)) {
+      std::fprintf(stderr, "--packs %s: not a folder\n", d.c_str());
+      return 1;
+    }
+    storage.addPackDir(d);
+  }
   SdlBuzzer buzzer;
   bool audio = buzzer.open();
   pc::FileCalendar calendar(calendarPath, &clock);
@@ -173,6 +189,14 @@ int main(int argc, char** argv) {
 
   Engine engine(p);
   engine.begin();
+  if (!startPack.empty() && !engine.selectPack(startPack)) {
+    std::fprintf(stderr, "pet '%s': %s\n", startPack.c_str(), engine.lastPackError().c_str());
+    return 1;
+  }
+  if (!startRoom.empty() && !engine.selectRoom(startRoom)) {
+    std::fprintf(stderr, "room '%s': %s\n", startRoom.c_str(), engine.lastRoomError().c_str());
+    return 1;
+  }
   if (edit) engine.openPortal();
   std::printf("Desk Pet simulator. Mouse = finger. Keys: arrows swipe, space tap, enter double tap,\n"
               "l long press, esc BOOT, n notification, m meeting, w weather, h +3h, f speed, 1 zoom,\n"

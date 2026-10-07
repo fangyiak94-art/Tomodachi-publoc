@@ -1,0 +1,9 @@
+{
+  "_comment": "Pets make_packs.py can build. dex = National Dex number. shiny uses the shiny sprite. room = the room theme it suits (just a hint for you).",
+  "pokemon": [
+    { "id": "gastly",       "name": "Gastly",       "dex": 92, "room": "haunted" },
+    { "id": "haunter",      "name": "Haunter",      "dex": 93, "room": "haunted" },
+    { "id": "gengar",       "name": "Gengar",       "dex": 94, "room": "haunted" },
+    { "id": "gengar-shiny", "name": "Shiny Gengar", "dex": 94, "room": "haunted", "shiny": true }
+  ]
+}

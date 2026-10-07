@@ -51,6 +51,12 @@ bool FramebufferDisplay::savePpm(const std::string& path, bool roundMask) const 
 std::string DirStorage::resolve(const char* path, bool forWrite) const {
   std::string p = path ? path : "";
   if (p.find("..") != std::string::npos) return "";
+  if (!forWrite && p.rfind("/packs/", 0) == 0) {
+    for (const std::string& dir : packDirs_) {
+      std::string candidate = dir + p.substr(6);  // keep "/<id>/<file>"
+      if (fs::exists(candidate)) return candidate;
+    }
+  }
   const std::string& base = (forWrite || (!writeRoot_.empty() && fs::exists(writeRoot_ + p)))
                                 ? (writeRoot_.empty() ? root_ : writeRoot_)
                                 : root_;
@@ -87,12 +93,15 @@ bool DirStorage::listDirs(const char* path, std::vector<std::string>& out) {
   if (p.find("..") != std::string::npos) return false;
   bool any = false;
   // Union of the read-only tree and the write root (uploads land there).
-  for (const std::string& base : {root_, writeRoot_}) {
-    if (base.empty()) continue;
+  std::vector<std::string> dirs = {root_ + p, writeRoot_.empty() ? "" : writeRoot_ + p};
+  if (p == "/packs")
+    for (const std::string& d : packDirs_) dirs.push_back(d);
+  for (const std::string& dir : dirs) {
+    if (dir.empty()) continue;
     std::error_code ec;
-    if (!fs::is_directory(base + p, ec)) continue;
+    if (!fs::is_directory(dir, ec)) continue;
     any = true;
-    for (const auto& e : fs::directory_iterator(base + p, ec)) {
+    for (const auto& e : fs::directory_iterator(dir, ec)) {
       std::string name = e.path().filename().string();
       if (e.is_directory() && std::find(out.begin(), out.end(), name) == out.end())
         out.push_back(name);

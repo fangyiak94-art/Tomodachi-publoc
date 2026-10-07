@@ -1,5 +1,6 @@
 // Unit tests for the portable engine. No framework: each TEST registers a
 // function; failures print file:line and the process exits non-zero.
+#include <algorithm>
 #include <cmath>
 #include <cstdio>
 #include <cstring>
@@ -402,6 +403,28 @@ TEST(all_shipped_packs_load) {
     if (!ok) std::printf("  pack %s: %s\n", id.c_str(), err.c_str());
     CHECK(ok);
   }
+}
+
+TEST(extra_pack_folders_are_listed_and_readable) {
+  namespace fsys = std::filesystem;
+  fsys::path extra = fsys::temp_directory_path() / "deskpet_extra_packs";
+  fsys::remove_all(extra);
+  fsys::create_directories(extra / "ghosty");
+  std::FILE* f = std::fopen((extra / "ghosty" / "manifest.json").string().c_str(), "w");
+  std::fputs("{\"format\":1,\"id\":\"ghosty\",\"name\":\"Ghosty\"}", f);
+  std::fclose(f);
+  pc::DirStorage st(std::string(DESKPET_SOURCE_DIR) + "/fs");
+  st.addPackDir(extra.string());
+  std::vector<std::string> ids;
+  CHECK(st.listDirs("/packs", ids));
+  CHECK(std::find(ids.begin(), ids.end(), "ghosty") != ids.end());
+  CHECK(std::find(ids.begin(), ids.end(), "blobby") != ids.end());
+  LoadedPack lp;
+  std::string err;
+  CHECK(loadPack(st, "ghosty", lp, err) && lp.cfg.name == "Ghosty");
+  CHECK(loadPack(st, "blobby", lp, err));
+  std::string out;
+  CHECK(!st.read("/packs/../../etc/passwd", out, 1000));
 }
 
 TEST(manifest_validation_rejects_bad_input) {

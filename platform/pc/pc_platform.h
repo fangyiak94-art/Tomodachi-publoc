@@ -37,11 +37,15 @@ class DirStorage : public Storage {
   bool listDirs(const char* path, std::vector<std::string>& out) override;
   // Writes go here instead of the pack tree when set (keeps fs/ clean).
   void setWriteRoot(std::string r) { writeRoot_ = std::move(r); }
+  // Extra folders of pets, each holding <id>/manifest.json, shown as if
+  // they were in /packs (e.g. pokemon_tomo_packs/packs). First match wins.
+  void addPackDir(std::string dir) { packDirs_.push_back(std::move(dir)); }
 
  private:
   std::string resolve(const char* path, bool forWrite) const;
   std::string root_;
   std::string writeRoot_;
+  std::vector<std::string> packDirs_;
 };
 
 class ManualClock : public Clock {
