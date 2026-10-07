@@ -123,16 +123,50 @@ void Engine::drawStats(Canvas& c) {
   bar(c, 106, "FUN", s.fun, pet_.isLow(s.fun));
   bar(c, 136, "NRG", s.energy, pet_.isLow(s.energy));
   bar(c, 166, "XP", static_cast<float>(s.xp % 100), false);
-  // Rare Candy: +1 level (and maybe an evolution).
+  // Opens the Evolve screen (Rare Candy, evolve, devolve).
   const Rect& b = layout::kCandyButton;
-  const bool have = s.candies > 0;
-  c.fillRoundRect(b.x, b.y, b.w, b.h, 14, have ? rgb(236, 96, 160) : kPanelHi);
-  c.fillCircle(b.x + 16, b.y + b.h / 2, 6, have ? kWhite : kMuted);  // candy
+  c.fillRoundRect(b.x, b.y, b.w, b.h, 14, rgb(236, 96, 160));
+  c.fillCircle(b.x + 16, b.y + b.h / 2, 6, kWhite);  // candy
   c.fillTriangle(b.x + 6, b.y + b.h / 2 - 5, b.x + 6, b.y + b.h / 2 + 5, b.x + 12, b.y + b.h / 2,
-                 have ? kWhite : kMuted);
-  char candy[16];
-  std::snprintf(candy, sizeof(candy), "x%u USE", static_cast<unsigned>(s.candies));
-  c.text(b.x + 30, b.y + 13, have ? candy : "NO CANDY", 2, have ? kWhite : kMuted);
+                 kWhite);
+  c.text(b.x + 34, b.y + 13, "EVOLVE", 2, kWhite);
+}
+
+void Engine::drawEvolveScreen(Canvas& c) {
+  c.fill(kBg);
+  const PetStats& s = pet_.stats();
+  // Each option: a title, plus a second line saying what it does.
+  auto row = [&](const Rect& r, bool on, Color col, const std::string& title,
+                 const std::string& sub) {
+    c.fillRoundRect(r.x, r.y, r.w, r.h, 14, on ? col : kPanelHi);
+    if (sub.empty()) {
+      c.textCentered(r.x + r.w / 2, r.y + 15, title.c_str(), 2, on ? kWhite : kMuted);
+      return;
+    }
+    c.textCentered(r.x + r.w / 2, r.y + 5, title.c_str(), 2, on ? kWhite : kMuted);
+    c.textCentered(r.x + r.w / 2, r.y + 25, sub.c_str(), 2, on ? rgb(255, 230, 245) : kMuted);
+  };
+  char buf[24];
+  std::snprintf(buf, sizeof(buf), "CANDY x%u", static_cast<unsigned>(s.candies));
+  row(layout::kEvoCandy, s.candies > 0, rgb(236, 96, 160), buf, s.candies ? "+1 level" : "none yet");
+
+  const EvolutionStage* next = pack_.cfg.stage(pack_.stage + 1);
+  if (!next) {
+    row(layout::kEvoEvolve, false, 0, "FINAL FORM", "");
+  } else {
+    std::snprintf(buf, sizeof(buf), " Lv%u", static_cast<unsigned>(next->level));
+    bool ok = canEvolve();
+    row(layout::kEvoEvolve, ok, rgb(130, 90, 220), "EVOLVE",
+        ok ? "to " + fit(next->name, 11) : fit(next->name, 10) + buf);
+  }
+  const EvolutionStage* prev = pack_.cfg.stage(pack_.stage - 1);
+  if (prev) row(layout::kEvoDevolve, true, rgb(70, 120, 200), "DEVOLVE", "to " + fit(prev->name, 11));
+  else row(layout::kEvoDevolve, false, 0, "FIRST FORM", "");
+
+  const EvolutionStage* cur = pack_.cfg.stage(pack_.stage);
+  std::snprintf(buf, sizeof(buf), " Lv%u", static_cast<unsigned>(pet_.level()));
+  c.textCentered(kScreenW / 2, 202, (fit(cur ? cur->name : pack_.cfg.name, 7) + buf).c_str(), 2,
+                 kAccent);
 }
 
 void Engine::drawEvolution(Canvas& c) {
@@ -156,16 +190,16 @@ void Engine::drawEvolution(Canvas& c) {
     case EvoPhase::Morph:
       c.textCentered(kScreenW / 2, 30, "What?", 2, kWhite);
       c.textCentered(kScreenW / 2, 50, (from + " is").c_str(), 2, kWhite);
-      c.textCentered(kScreenW / 2, 70, "evolving!", 2, kWhite);
+      c.textCentered(kScreenW / 2, 70, evo_.devolve ? "devolving!" : "evolving!", 2, kWhite);
       c.textCentered(kScreenW / 2, 206, "BOOT: stop", 2, kMuted);
       break;
     case EvoPhase::Done:
-      c.textCentered(kScreenW / 2, 40, (from + " evolved").c_str(), 2, kWhite);
+      c.textCentered(kScreenW / 2, 40, (from + (evo_.devolve ? " devolved" : " evolved")).c_str(), 2, kWhite);
       c.textCentered(kScreenW / 2, 60, ("into " + to + "!").c_str(), 2, kAccent);
       break;
     case EvoPhase::Cancelled:
       c.textCentered(kScreenW / 2, 40, ("Huh? " + from).c_str(), 2, kWhite);
-      c.textCentered(kScreenW / 2, 60, "stopped evolving", 2, kWhite);
+      c.textCentered(kScreenW / 2, 60, evo_.devolve ? "stayed put" : "stopped evolving", 2, kWhite);
       break;
     default:
       break;

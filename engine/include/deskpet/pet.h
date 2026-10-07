@@ -51,6 +51,7 @@ struct PetStats {
   uint8_t stage = 0;      // evolution stage (index into the pack's stages)
   uint16_t meetingAcks = 0;
   int32_t treatDay = -1;  // local day number of the last daily candy
+  bool holdForm = false;  // devolved on purpose: no automatic evolution
 };
 
 class Pet {

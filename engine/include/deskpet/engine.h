@@ -17,7 +17,7 @@
 
 namespace dp {
 
-enum class Screen : uint8_t { Home, Stats, Agenda, Actions, Settings, Upload };
+enum class Screen : uint8_t { Home, Stats, Agenda, Actions, Settings, Upload, Evolve };
 const char* screenName(Screen s);
 
 // The evolution scene: "What? X is evolving!" -> silhouettes flashing
@@ -57,6 +57,10 @@ class Engine : public PortalHost {
   // Rare Candy: +1 level now (and maybe an evolution). Used from Stats.
   bool useRareCandy();
   void giveCandy(int n, const char* why);
+  // Evolve screen: evolve when the level allows it, or go back a form.
+  bool canEvolve() const;
+  bool evolveNow();
+  bool devolveNow();
   EvoPhase evoPhase() const { return evo_.phase; }
   const std::string& toast() const { return toast_; }
 
@@ -124,6 +128,9 @@ class Engine : public PortalHost {
   void onSettings(const InputEvent& e);
   void onAlert(const InputEvent& e);
   void onStats(const InputEvent& e);
+  void onEvolveScreen(const InputEvent& e);
+  void drawEvolveScreen(Canvas& c);
+  bool startEvolution(int to, bool manual);
 
   // Levels, candy and evolution.
   void onLevelUp();
@@ -150,6 +157,8 @@ class Engine : public PortalHost {
   struct Evolution {
     EvoPhase phase = EvoPhase::None;
     int to = 0;
+    bool devolve = false;  // going back a form
+    bool manual = false;   // chosen on the Evolve screen (no chaining)
     uint16_t ticks = 0;
     std::string fromName, toName;
     LoadedPack next;  // the new form's sprite sheet, loaded for the scene

@@ -910,6 +910,32 @@ TEST(engine_candy_evolution_cancel_and_persist) {
   CHECK(e.pack().stage == 1 && e.pack().cfg.stage(1)->name == "Big Blobby");
 }
 
+TEST(engine_devolve_holds_form_until_evolve_pressed) {
+  EngineRig r("devolve");
+  Engine& e = *r.engine;
+  CHECK(!e.devolveNow());  // first form
+  CHECK(!e.canEvolve());   // level 1
+  e.pet().stats().xp = 400;  // level 5
+  e.pet().stats().holdForm = true;  // as if devolved earlier
+  CHECK(e.canEvolve());
+  e.giveCandy(1, "t");
+  CHECK(e.useRareCandy());  // level 6, but held: no automatic evolution
+  CHECK(e.evoPhase() == EvoPhase::None && e.pack().stage == 0);
+  CHECK(e.evolveNow());     // the button
+  runUntilNoEvolution(r, 120);
+  CHECK(e.pack().stage == 1 && !e.pet().stats().holdForm);
+  CHECK(e.devolveNow());
+  CHECK(e.evoPhase() == EvoPhase::Intro);
+  runUntilNoEvolution(r, 120);
+  CHECK(e.pack().stage == 0 && e.pet().stats().holdForm);
+  // Evolve screen buttons do the same.
+  e.handleGesture({Gesture::SwipeLeft, 120, 120});
+  e.handleGesture({Gesture::Tap, 120, 206});
+  CHECK(e.screen() == Screen::Evolve);
+  e.handleGesture({Gesture::Tap, 120, 114});  // EVOLVE
+  CHECK(e.evoPhase() == EvoPhase::Intro && e.screen() == Screen::Home);
+}
+
 TEST(engine_earns_candy_from_meetings_and_daily_treat) {
   EngineRig r("earn");
   Engine& e = *r.engine;

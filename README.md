@@ -80,10 +80,10 @@ docs/              architecture & migration, pack format, hardware bring-up
 
 ## What works
 
-- **Levels and evolution**: Rare Candy (earned from a daily treat and
-  meeting streaks) gives +1 level. At a stage's level, a Pokémon-style
-  evolution scene plays and the pet switches to its next form and sprites.
-  BOOT stops it.
+- **Levels and evolution**: the Evolve screen (Stats › EVOLVE) has three
+  options. Feed Rare Candy (+1 level, earned from a daily treat and meeting
+  streaks), evolve when the level allows, or devolve to the previous form.
+  A Pokémon-style scene plays and the pet switches sprites. BOOT stops it.
 - **Pet**: food/fun/energy/XP with decay rates and actions from the spec.
   Mood table (first match wins) and the level formula are also from the spec.
   Stats under 30 show amber.

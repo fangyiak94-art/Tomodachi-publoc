@@ -19,6 +19,7 @@ const char* screenName(Screen s) {
     case Screen::Actions: return "actions";
     case Screen::Settings: return "settings";
     case Screen::Upload: return "upload";
+    case Screen::Evolve: return "evolve";
   }
   return "?";
 }
@@ -402,8 +403,9 @@ uint32_t Engine::contentHash() {
   if (screen_ == Screen::Home) {
     const PetStats& s = pet_.stats();
     mix(pet_.isLow(s.food) || pet_.isLow(s.fun) || pet_.isLow(s.energy));
-  } else if (screen_ == Screen::Stats) {
+  } else if (screen_ == Screen::Stats || screen_ == Screen::Evolve) {
     const PetStats& s = pet_.stats();
+    mix(static_cast<uint32_t>(pack_.stage));
     mix(static_cast<uint32_t>(s.food));
     mix(static_cast<uint32_t>(s.fun));
     mix(static_cast<uint32_t>(s.energy));
@@ -466,6 +468,7 @@ void Engine::handleGesture(const InputEvent& e) {
   switch (screen_) {
     case Screen::Home: onHome(e); break;
     case Screen::Stats: onStats(e); break;
+    case Screen::Evolve: onEvolveScreen(e); break;
     case Screen::Agenda:
       if (e.gesture == Gesture::SwipeLeft || e.gesture == Gesture::Back) goTo(Screen::Home);
       break;
@@ -633,6 +636,7 @@ void Engine::drawAll(Canvas& c) {
   switch (screen_) {
     case Screen::Home: drawHome(c); break;
     case Screen::Stats: drawStats(c); break;
+    case Screen::Evolve: drawEvolveScreen(c); break;
     case Screen::Agenda: drawAgenda(c); break;
     case Screen::Actions: drawActions(c); break;
     case Screen::Settings: drawSettings(c); break;
@@ -707,28 +711,47 @@ void Engine::onLevelUp() {
 }
 
 void Engine::checkEvolution() {
-  if (evo_.phase != EvoPhase::None) return;
-  const int stage = pack_.stage;
+  if (evo_.phase != EvoPhase::None || pet_.stats().holdForm) return;
   const int target = pack_.cfg.stageIndexFor(pet_.level());
-  if (target <= stage || pet_.level() <= refusedLevel_) return;
-  const int to = stage + 1;  // one form at a time
+  if (target <= pack_.stage || pet_.level() <= refusedLevel_) return;
+  if (!startEvolution(pack_.stage + 1, false)) refusedLevel_ = pet_.level();
+}
+
+bool Engine::canEvolve() const {
+  const EvolutionStage* next = pack_.cfg.stage(pack_.stage + 1);
+  return next && pet_.level() >= next->level && evo_.phase == EvoPhase::None;
+}
+
+bool Engine::evolveNow() {
+  if (!canEvolve()) return false;
+  return startEvolution(pack_.stage + 1, true);
+}
+
+bool Engine::devolveNow() {
+  if (pack_.stage <= 0 || evo_.phase != EvoPhase::None) return false;
+  return startEvolution(pack_.stage - 1, true);
+}
+
+bool Engine::startEvolution(int to, bool manual) {
   LoadedPack next;
-  if (!loadPackStage(pack_.cfg.id, to, next)) {
-    refusedLevel_ = pet_.level();
-    return;
-  }
+  if (!loadPackStage(pack_.cfg.id, to, next)) return false;
+  const int from = pack_.stage;
   evo_.phase = EvoPhase::Intro;
   evo_.to = to;
+  evo_.devolve = to < from;
+  evo_.manual = manual;
   evo_.ticks = 0;
-  evo_.fromName = pack_.cfg.stage(stage) ? pack_.cfg.stage(stage)->name : pack_.cfg.name;
-  evo_.toName = next.cfg.stage(to)->name;
+  evo_.fromName = pack_.cfg.stage(from) ? pack_.cfg.stage(from)->name : pack_.cfg.name;
+  evo_.toName = next.cfg.stage(to) ? next.cfg.stage(to)->name : next.cfg.name;
   evo_.next = std::move(next);
   evo_.next.rebind();
   if (pet_.asleep()) world_.wake(pet_);
   if (screen_ != Screen::Home) goTo(Screen::Home);
   if (const char* t = pack_.cfg.sound("evolve")) tune_.play(t, 0);
-  log("deskpet: " + evo_.fromName + " is evolving into " + evo_.toName);
+  log("deskpet: " + evo_.fromName + (evo_.devolve ? " is devolving into " : " is evolving into ") +
+      evo_.toName);
   invalidateAll();
+  return true;
 }
 
 void Engine::stepEvolution() {
@@ -747,16 +770,19 @@ void Engine::stepEvolution() {
         pack_.rebind();
         evo_.next = LoadedPack();
         pet_.stats().stage = static_cast<uint8_t>(pack_.stage);
+        // Devolving holds the form until EVOLVE is pressed; evolving lets
+        // levels drive it again.
+        pet_.stats().holdForm = evo_.devolve;
         evo_.phase = EvoPhase::Done;
         if (const char* t = pack_.cfg.sound("happy")) tune_.play(t, 0);
-        log("deskpet: evolved into " + evo_.toName);
+        log(std::string("deskpet: ") + (evo_.devolve ? "devolved" : "evolved") + " into " + evo_.toName);
         save();
       }
       break;
     case EvoPhase::Done:
       if (evo_.ticks >= kDoneEnd) {
         evo_.phase = EvoPhase::None;
-        checkEvolution();  // a big candy streak may allow another step
+        if (!evo_.manual) checkEvolution();  // a candy streak may allow another step
       }
       break;
     case EvoPhase::Cancelled:
@@ -773,7 +799,7 @@ void Engine::onEvolutionGesture(const InputEvent& e) {
     evo_.phase = EvoPhase::Cancelled;
     evo_.ticks = 0;
     evo_.next = LoadedPack();
-    refusedLevel_ = pet_.level();
+    if (!evo_.manual) refusedLevel_ = pet_.level();  // auto: retry next level
     tune_.stop(p_.buzzer);
     log("deskpet: evolution stopped");
     invalidateAll();
@@ -782,7 +808,7 @@ void Engine::onEvolutionGesture(const InputEvent& e) {
     if (e.gesture == Gesture::Tap || e.gesture == Gesture::Back) {
       evo_.phase = EvoPhase::None;
       invalidateAll();
-      checkEvolution();
+      if (!evo_.manual) checkEvolution();
     }
   }
 }
@@ -791,8 +817,21 @@ void Engine::onStats(const InputEvent& e) {
   if (e.gesture == Gesture::SwipeRight || e.gesture == Gesture::Back) {
     goTo(Screen::Home);
   } else if (e.gesture == Gesture::Tap && layout::kCandyButton.contains(e.x, e.y)) {
-    if (!useRareCandy()) invalidateAll();
+    goTo(Screen::Evolve);
   }
+}
+
+void Engine::onEvolveScreen(const InputEvent& e) {
+  if (e.gesture == Gesture::SwipeRight || e.gesture == Gesture::Back) {
+    goTo(Screen::Stats);
+    return;
+  }
+  if (e.gesture != Gesture::Tap) return;
+  bool done = false;
+  if (layout::kEvoCandy.contains(e.x, e.y)) done = useRareCandy();
+  else if (layout::kEvoEvolve.contains(e.x, e.y)) done = evolveNow();
+  else if (layout::kEvoDevolve.contains(e.x, e.y)) done = devolveNow();
+  if (!done) invalidateAll();
 }
 
 }  // namespace dp

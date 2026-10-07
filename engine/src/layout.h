@@ -16,7 +16,12 @@ constexpr int kRowRoom = 152;
 constexpr int kRowUpload = 196;
 constexpr int kRowH = 44;
 
-// Stats screen "use Rare Candy" button and the home toast strip.
+// Evolve screen rows.
+constexpr Rect kEvoCandy = Rect(32, 40, 176, 46);
+constexpr Rect kEvoEvolve = Rect(20, 92, 200, 46);
+constexpr Rect kEvoDevolve = Rect(24, 144, 192, 46);
+
+// Stats screen "EVOLVE >" button and the home toast strip.
 constexpr Rect kCandyButton = Rect(60, 188, 120, 40);
 constexpr Rect kToast = Rect(46, 194, 148, 26);
 

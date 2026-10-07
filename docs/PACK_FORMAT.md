@@ -59,15 +59,23 @@ Candy** jumps straight to the next level. Candies are earned with:
 - a **meeting streak**: every 2nd meeting you acknowledge
 - `c` in the simulator, or `candy` on the board's serial console
 
-Use them on the Stats screen (pink **xN USE** button).
+Stats › **EVOLVE** opens the Evolve screen:
 
-When the level reaches the next stage's `level`, the evolution scene plays:
+| Option | |
+|---|---|
+| **CANDY xN** | feed a Rare Candy: +1 level |
+| **EVOLVE** | evolve now (enabled once the level allows the next form; otherwise it shows e.g. "Haunter Lv5") |
+| **DEVOLVE** | go back to the previous form, with the same scene in reverse ("X is devolving!") |
+
+When the level reaches the next stage's `level`, the evolution also starts by
+itself, unless you devolved on purpose. A devolved pet keeps its form until
+you press EVOLVE. The scene:
 "What? X is evolving!", then the old and new forms flash as white
 silhouettes, faster and faster, then a white flash and "X evolved into Y!".
 The pet's sprite sheet and animations switch to that stage's `sprites`
 and `animations`. Press **BOOT** during the first part to stop it, like
-pressing B. It tries again at the next level up. The form the pet reached is
-saved and survives reboots. Only the current stage's sheet is in RAM
+pressing B. An automatic evolution tries again at the next level up. The
+form (and whether you chose to hold it) is saved and survives reboots. Only the current stage's sheet is in RAM
 (about 30 KB). Both sheets are loaded briefly during the scene.
 
 Make a family from pictures with

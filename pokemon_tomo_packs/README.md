@@ -19,9 +19,13 @@ python3 pokemon_tomo_packs/make_packs.py --list
 - Press `c` in the simulator (or type `candy` in the board's serial
   console) to get one. You also earn them from the first feed of each day
   and every 2nd meeting you acknowledge.
-- Swipe ← to Stats and tap the pink **USE** button. 4 candies take Gastly
-  from Lv 1 to Lv 5.
-- Watch "What? Gastly is evolving!". Press BOOT (Esc) during it to stop it.
+- Swipe ← to Stats and tap **EVOLVE**. On the Evolve screen:
+  - **CANDY** feeds a Rare Candy (+1 level). 4 take Gastly from Lv 1 to Lv 5,
+    and it evolves by itself ("What? Gastly is evolving!"). Press BOOT (Esc)
+    during the scene to stop it.
+  - **EVOLVE** evolves on demand once the level allows it.
+  - **DEVOLVE** goes back a form (Gengar → Haunter → Gastly). It then stays
+    that way until you press EVOLVE, even when it levels up.
 
 Record it without a window:
 

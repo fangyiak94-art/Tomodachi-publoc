@@ -101,6 +101,7 @@ std::string Pet::toJson(int64_t savedAt) const {
   doc["stage"] = s_.stage;
   doc["meetingAcks"] = s_.meetingAcks;
   doc["treatDay"] = s_.treatDay;
+  doc["holdForm"] = s_.holdForm;
   doc["savedAt"] = savedAt;
   std::string out;
   serializeJson(doc, out);
@@ -121,6 +122,7 @@ bool Pet::fromJson(const std::string& json, int64_t& savedAt) {
   s.stage = static_cast<uint8_t>(std::min(7u, doc["stage"] | 0u));
   s.meetingAcks = static_cast<uint16_t>(doc["meetingAcks"] | 0u);
   s.treatDay = doc["treatDay"] | -1;
+  s.holdForm = doc["holdForm"] | false;
   savedAt = doc["savedAt"] | int64_t(0);
   s_ = s;
   return true;

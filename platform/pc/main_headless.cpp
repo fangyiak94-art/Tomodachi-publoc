@@ -152,7 +152,8 @@ int main(int argc, char** argv) {
       e.giveCandy(candy, "preview");
       for (int i = 0; i < candy; ++i) {
         h.gesture(Gesture::SwipeLeft);
-        h.gesture(Gesture::Tap, 120, 206);  // candy button
+        h.gesture(Gesture::Tap, 120, 206);  // EVOLVE > (Stats)
+        h.gesture(Gesture::Tap, 120, 62);   // CANDY row
         h.ticks(1);
         while (e.evoPhase() != EvoPhase::None) {
           char name[32];
@@ -265,14 +266,29 @@ int main(int argc, char** argv) {
   e.giveCandy(4, "gate");
   for (int i = 0; i < 4 && e.evoPhase() == EvoPhase::None; ++i) {
     h.gesture(Gesture::SwipeLeft);
-    h.gesture(Gesture::Tap, 120, 206);
+    h.gesture(Gesture::Tap, 120, 206);  // EVOLVE >
+    if (i == 0) shot("12_evolve_screen");
+    h.gesture(Gesture::Tap, 120, 62);   // CANDY row
   }
   check(e.pet().level() >= 5, "rare candies level the pet up");
   check(e.evoPhase() != EvoPhase::None, "reaching level 5 starts the evolution scene");
   h.ticks(12);
-  shot("12_evolving");
+  shot("13_evolving");
   bool evolved = h.until([&] { return e.evoPhase() == EvoPhase::None; }, 120);
   check(evolved && e.pack().stage == 1 && e.pet().stats().stage == 1, "evolves into the next form");
+
+  // Devolve from the Evolve screen, then evolve again on demand.
+  h.gesture(Gesture::SwipeLeft);
+  h.gesture(Gesture::Tap, 120, 206);
+  h.gesture(Gesture::Tap, 120, 166);  // DEVOLVE
+  h.until([&] { return e.evoPhase() == EvoPhase::None; }, 120);
+  check(e.pack().stage == 0 && e.pet().stats().holdForm, "devolve goes back a form and holds it");
+  h.gesture(Gesture::SwipeLeft);
+  h.gesture(Gesture::Tap, 120, 206);
+  shot("14_evolve_screen_after_devolve");
+  h.gesture(Gesture::Tap, 120, 114);  // EVOLVE
+  h.until([&] { return e.evoPhase() == EvoPhase::None; }, 120);
+  check(e.pack().stage == 1 && !e.pet().stats().holdForm, "evolve button evolves when the level allows");
 
   // Swap packs at runtime (Settings > Pack), no rebuild.
   h.gesture(Gesture::SwipeDown);
