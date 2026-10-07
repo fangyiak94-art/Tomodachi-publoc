@@ -11,13 +11,14 @@ same engine code flashes to the RM49 DIYMORE ESP32-C3 board unchanged.
 | | |
 |---|---|
 | ![home](docs/img/home.png) | ![yard](docs/img/yard.png) |
+| ![haunted at night](docs/img/haunted_night.png) | ![rain at dusk](docs/img/rain_dusk.png) |
 
 ## Quick start (PC)
 
 ```bash
 sudo apt install cmake g++ libsdl2-dev        # macOS: brew install cmake sdl2
 cmake -S . -B build && cmake --build build -j
-./build/deskpet_tests                         # 30 unit tests
+./build/deskpet_tests                         # unit tests
 ./build/deskpet_headless                      # MVP gate scenario + screenshots in shots/
 ./build/deskpet_sim                           # the pet in a window (run from repo root)
 ```
@@ -32,6 +33,10 @@ drag to swipe). Keyboard shortcuts:
 | enter | double tap | `f` | pet time ×1 / ×60 / ×600 |
 | `l` | long press | `1` | zoom (1 = real panel size) |
 | esc / backspace | BOOT (back) | `p` | screenshot |
+| `w` | weather: clear/cloudy/rain/snow | `h` | clock +3 h (day/night) |
+
+Room editor: open Settings › UPLOAD (or start with `--edit`), then go to
+http://localhost:8080 and drag the sliders. The pet's room updates live.
 
 Mock meetings come from `mock/calendar.json`. It uses the same shape the
 Apps Script returns, and the simulator re-reads it every minute.
@@ -55,8 +60,8 @@ engine/            portable C++17 engine (no Arduino/SDL includes). Also a Platf
 platform/pc/       PC HAL + headless gate runner
 platform/sim/      SDL2 simulator
 platform/esp32/    ESP32-C3 HAL: LovyanGFX GC9A01 + CST816, LittleFS, Wi-Fi, BLE
-fs/                LittleFS image: packs/ (and your untracked secrets.json)
-tools/             png2dps.py (PNG -> sprite format), sample pack generator
+fs/                LittleFS image: packs/ (pets), rooms/ (house+yard themes), untracked secrets.json
+tools/             png2dps.py, image2pack.py (picture -> pet), image2room.py (pictures -> room)
 integrations/      Google Apps Script calendar feed, secrets example
 tests/             unit tests (pet rules, alerts, gestures, untrusted pack parsing)
 docs/              architecture & migration, pack format, hardware bring-up
@@ -67,8 +72,12 @@ docs/              architecture & migration, pack format, hardware bring-up
 - **Pet**: food/fun/energy/XP with decay rates and actions from the spec.
   Mood table (first match wins) and the level formula are also from the spec.
   Stats under 30 show amber.
-- **World**: house (bed, bowl, window, door) and yard (tree, house front,
-  flowers). Named spots; goals for Sleep, Feed, Walk and Play. The pet goes
+- **Rooms**: the house (bed, bowl, window, door) and yard (tree, house
+  front, flowers) are swappable themes: Cozy, Haunted, Beach, or your own
+  pictures. The room changes by itself with the time of day, the weather
+  (rain and snow keep the pet in), and lights off at bedtime. You can edit
+  it live from a phone or PC. See [docs/ROOMS.md](docs/ROOMS.md).
+- **World**: named spots; goals for Sleep, Feed, Walk and Play. The pet goes
   home first when it is outside. Idle wandering, blinking and look direction.
   A happy pet goes out on its own and comes back when tired, bored or after
   45 ticks. Tap gives a jump and a heart. 280 ms ticks with a two-frame walk.
@@ -77,8 +86,7 @@ docs/              architecture & migration, pack format, hardware bring-up
   the priority rules (meetings bypass DND and wake the pet; notifications
   are muted by DND, queued while asleep and held behind meetings).
 - **Packs**: `manifest.json` covers stats, decay, mood thresholds, rules,
-  evolution, scenes and spots, and RTTTL sounds. Optional 4-bit sprite sheets
-  and scene backgrounds. Every field is validated and bounded; a bad pack
+  evolution and RTTTL sounds. Optional 4-bit sprite sheets. Every field is validated and bounded; a bad pack
   falls back to the built-in default. Three packs ship: procedural **Blobby**,
   and sprite-based **Sprout** and **Wisp**. `tools/image2pack.py` turns any
   single picture into a pack (see docs/PACK_FORMAT.md).
@@ -88,8 +96,9 @@ docs/              architecture & migration, pack format, hardware bring-up
 - **Integrations**: calendar JSON parser shared by the simulator and the
   board, Apps Script feed, Chronos BLE notifications (build env
   `esp32c3-chronos`), and serial-console fakes for bring-up.
-- **Upload**: Wi-Fi hotspot portal (`DeskPet-XXXX`, random password shown on
-  screen) that runs only while the Upload screen is open.
+- **Portal**: Wi-Fi hotspot (`DeskPet-XXXX`, random password shown on
+  screen) with the room editor and file uploads. It runs only while open,
+  and BOOT closes it. The simulator serves the same page on localhost.
 
 ## Status against the roadmap
 

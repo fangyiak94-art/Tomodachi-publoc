@@ -16,6 +16,9 @@
 #include "deskpet/pack.h"
 #include "deskpet/pet.h"
 #include "deskpet/world.h"
+#include "deskpet/portal.h"
+#include "deskpet/room.h"
+#include "http_portal.h"
 #include "pc_platform.h"
 
 using namespace dp;
@@ -126,8 +129,9 @@ static void runTicks(World& w, Pet& p, int n) {
 
 TEST(feed_goal_walks_to_bowl_and_eats) {
   PackConfig pack = defaultPack();
+  RoomConfig room = defaultRoom();
   World w;
-  w.reset(pack, 3);
+  w.reset(room, 3);
   Pet p;
   p.stats().food = 20;
   w.requestFeed(p);
@@ -136,13 +140,14 @@ TEST(feed_goal_walks_to_bowl_and_eats) {
   for (; i < 100 && p.stats().food < 40; ++i) w.tick(p);
   CHECK(p.stats().food > 40);
   CHECK(!w.view().bowlFull);
-  CHECK(std::abs(w.view().x - pack.scene(SceneId::House).spot("bowl")->x) <= 1);
+  CHECK(std::abs(w.view().x - room.scene(SceneId::House).spot("bowl")->x) <= 1);
 }
 
 TEST(feed_from_outside_comes_home_first) {
   PackConfig pack = defaultPack();
+  RoomConfig room = defaultRoom();
   World w;
-  w.reset(pack, 3);
+  w.reset(room, 3);
   Pet p;
   w.requestWalk(p);
   runTicks(w, p, 60);
@@ -160,13 +165,14 @@ TEST(feed_from_outside_comes_home_first) {
 
 TEST(sleep_goal_goes_to_bed_and_wakes_rested) {
   PackConfig pack = defaultPack();
+  RoomConfig room = defaultRoom();
   World w;
-  w.reset(pack, 5);
+  w.reset(room, 5);
   Pet p;
   w.requestSleep(p);
   runTicks(w, p, 80);
   CHECK(p.asleep());
-  CHECK(w.view().x == pack.scene(SceneId::House).spot("bed")->x);
+  CHECK(w.view().x == room.scene(SceneId::House).spot("bed")->x);
   CHECK(w.view().activity == Activity::Sleeping);
   p.stats().energy = 100;
   w.tick(p);
@@ -176,8 +182,9 @@ TEST(sleep_goal_goes_to_bed_and_wakes_rested) {
 TEST(happy_pet_goes_out_alone_and_returns_after_max_ticks) {
   PackConfig pack = defaultPack();
   pack.tuning.outingChancePct = 100;
+  RoomConfig room = defaultRoom();
   World w;
-  w.reset(pack, 9);
+  w.reset(room, 9);
   Pet p(pack.tuning);
   p.stats() = {90, 90, 90, 0, false};
   bool wentOut = false;
@@ -200,8 +207,9 @@ TEST(happy_pet_goes_out_alone_and_returns_after_max_ticks) {
 TEST(neutral_pet_stays_inside) {
   PackConfig pack = defaultPack();
   pack.tuning.outingChancePct = 100;
+  RoomConfig room = defaultRoom();
   World w;
-  w.reset(pack, 11);
+  w.reset(room, 11);
   Pet p(pack.tuning);
   p.stats() = {60, 50, 90, 0, false};
   p.setTuning(pack.tuning);
@@ -215,14 +223,15 @@ TEST(neutral_pet_stays_inside) {
 
 TEST(world_stays_inside_scene_bounds) {
   PackConfig pack = defaultPack();
+  RoomConfig room = defaultRoom();
   World w;
-  w.reset(pack, 1);
+  w.reset(room, 1);
   Pet p;
   p.stats() = {90, 90, 90, 0, false};
   for (int i = 0; i < 2000; ++i) {
     w.tick(p);
     p.stats().energy = 90;
-    const SceneConfig& sc = pack.scene(w.view().scene);
+    const SceneConfig& sc = room.scene(w.view().scene);
     int lo = sc.minX, hi = sc.maxX;
     for (const Spot& s : sc.spots) { lo = std::min<int>(lo, s.x); hi = std::max<int>(hi, s.x); }
     CHECK(w.view().x >= lo && w.view().x <= hi);
@@ -407,7 +416,6 @@ TEST(manifest_validation_rejects_bad_input) {
   CHECK(!parse(base + ",\"creature\":{\"sprites\":\"s.dps\"}}", p, err));  // no idle anim
   CHECK(!parse(base + ",\"rules\":[{\"stat\":\"mana\",\"below\":3,\"mood\":\"sad\"}]}", p, err));
   CHECK(!parse(base + ",\"rules\":[{\"stat\":\"food\",\"mood\":\"sad\"}]}", p, err));
-  CHECK(!parse(base + ",\"scenes\":{\"house\":{\"spots\":{\"bed\":[1]}}}}", p, err));
   CHECK(!parse("[1,2,3]", p, err));
   CHECK(!parse("", p, err));
   std::string deep = base + ",\"x\":" + std::string(50, '[') + std::string(50, ']') + "}";
@@ -420,13 +428,10 @@ TEST(manifest_clamps_numbers) {
   PackConfig p;
   std::string err;
   CHECK(parse("{\"format\":1,\"id\":\"x\",\"name\":\"X\","
-              "\"decay\":{\"awake\":{\"food\":1e30,\"fun\":-4}},"
-              "\"scenes\":{\"yard\":{\"spots\":{\"door\":[99999,-5]}}}}",
+              "\"decay\":{\"awake\":{\"food\":1e30,\"fun\":-4}}}",
               p, err));
   CHECK(p.tuning.foodDecayAwake == 100);
   CHECK(p.tuning.funDecayAwake == 0);
-  const Spot* d = p.scene(SceneId::Yard).spot("door");
-  CHECK(d && d->x == kScreenW - 1 && d->y == 0);
 }
 
 TEST(manifest_rules_override_mood) {
@@ -495,6 +500,129 @@ TEST(parsers_survive_random_mutation) {
     parseImage4(reinterpret_cast<const uint8_t*>(im.data()), im.size(), img, err);
   }
   CHECK(true);
+}
+
+
+// ---------------------------------------------------------------- rooms
+
+TEST(shipped_rooms_load) {
+  pc::DirStorage st(std::string(DESKPET_SOURCE_DIR) + "/fs");
+  std::vector<std::string> ids;
+  CHECK(st.listDirs("/rooms", ids));
+  CHECK(ids.size() >= 3);
+  for (const std::string& id : ids) {
+    LoadedRoom r;
+    std::string err;
+    bool ok = loadRoom(st, id, r, err);
+    if (!ok) std::printf("  room %s: %s\n", id.c_str(), err.c_str());
+    CHECK(ok);
+  }
+  LoadedRoom builtin;
+  std::string err;
+  pc::DirStorage empty("/nonexistent");
+  CHECK(loadRoom(empty, "cozy", builtin, err));  // built in without files
+  CHECK(!loadRoom(empty, "haunted", builtin, err));
+}
+
+TEST(room_json_round_trip_and_clamping) {
+  RoomConfig r = defaultRoom();
+  r.name = "Den";
+  r.colors.wall = rgb(10, 200, 30);
+  r.windowX = 100;
+  std::string j = roomToJson(r);
+  RoomConfig back;
+  std::string err;
+  CHECK(parseRoom(j.data(), j.size(), back, err));
+  CHECK(back.name == "Den" && back.colors.wall == r.colors.wall && back.windowX == 100);
+  CHECK(back.spotX(SceneId::House, "bed", 0) == 62);
+  CHECK(roomToJson(back) == j);
+  const std::string wild = R"({"format":1,"id":"x","name":"X","layout":{"bed":-500,"door":9999,"groundY":1e9}})";
+  CHECK(parseRoom(wild.data(), wild.size(), back, err));
+  CHECK(back.spotX(SceneId::House, "bed", 0) == 50);
+  CHECK(back.spotX(SceneId::House, "door", 0) == 196);
+  CHECK(back.scene(SceneId::Yard).groundY == 200);
+}
+
+TEST(room_validation_rejects_bad_input) {
+  RoomConfig r;
+  std::string err;
+  auto bad = [&](const std::string& j) { return !parseRoom(j.data(), j.size(), r, err); };
+  CHECK(bad(R"({"format":2,"id":"x","name":"X"})"));
+  CHECK(bad(R"({"format":1,"id":"../x","name":"X"})"));
+  CHECK(bad(R"({"format":1,"id":"x","name":"<script>\"x"})"));
+  CHECK(bad(R"({"format":1,"id":"x","name":"X","colors":{"wall":"red"}})"));
+  CHECK(bad(R"({"format":1,"id":"x","name":"X","backgrounds":{"house":"../../secrets.json"}})"));
+  CHECK(bad(R"({"format":1,"id":"x","name":"X","backgroundsFrom":"../packs"})"));
+  CHECK(bad(std::string(kMaxRoomBytes + 1, ' ')));
+  CHECK(!bad(R"({"format":1,"id":"x","name":"X","colors":{"wall":"#112233"},"unknown":1})"));
+}
+
+TEST(day_phases_and_tints) {
+  CHECK(dayPhaseForHour(6) == DayPhase::Dawn);
+  CHECK(dayPhaseForHour(12) == DayPhase::Day);
+  CHECK(dayPhaseForHour(18) == DayPhase::Dusk);
+  CHECK(dayPhaseForHour(23) == DayPhase::Night);
+  CHECK(dayPhaseForHour(2) == DayPhase::Night);
+  Ambience day;
+  CHECK(sceneTint(day, SceneId::House).identity());
+  Ambience dark;
+  dark.lightsOff = true;
+  Tint t = sceneTint(dark, SceneId::House);
+  CHECK(t.r < 128 && t.g < 128);
+  CHECK(t.apply(rgb(255, 255, 255)) != rgb(255, 255, 255));
+  Ambience rain;
+  rain.weather = Weather::Rain;
+  CHECK(!sceneTint(rain, SceneId::Yard).identity());
+  Weather w;
+  const char* feed = R"({"events":[],"weather":"snow"})";
+  CHECK(parseWeatherJson(feed, std::strlen(feed), w) && w == Weather::Snow);
+  const char* feed2 = R"({"weather":{"code":"rain","tempC":27}})";
+  CHECK(parseWeatherJson(feed2, std::strlen(feed2), w) && w == Weather::Rain);
+  CHECK(!parseWeatherJson("{\"weather\":\"lava\"}", 18, w));
+}
+
+TEST(canvas_tint_applies_to_shapes_and_images) {
+  std::vector<Color> buf(4, 0);
+  Canvas c(buf.data(), Rect(0, 0, 4, 1));
+  Tint half;
+  half.r = half.g = half.b = 128;
+  c.setTint(half);
+  c.fillRect(0, 0, 2, 1, rgb(255, 255, 255));
+  CHECK(buf[0] == half.apply(rgb(255, 255, 255)));
+  CHECK(buf[0] != rgb(255, 255, 255));
+}
+
+TEST(bad_weather_keeps_pet_inside) {
+  PackConfig pack = defaultPack();
+  pack.tuning.outingChancePct = 100;
+  RoomConfig room = defaultRoom();
+  World w;
+  w.reset(room, 4);
+  Pet p(pack.tuning);
+  p.stats() = {90, 90, 90, 0, false};
+  w.setBadWeather(true);
+  for (int i = 0; i < 300; ++i) {
+    w.tick(p);
+    p.stats().fun = 90;
+    if (w.view().scene != SceneId::House) break;
+  }
+  CHECK(w.view().scene == SceneId::House);
+}
+
+TEST(world_set_room_keeps_pet_in_range) {
+  RoomConfig a = defaultRoom();
+  World w;
+  w.reset(a, 1);
+  Pet p;
+  w.requestSleep(p);
+  for (int i = 0; i < 80; ++i) w.tick(p);
+  CHECK(p.asleep());
+  RoomConfig b = defaultRoom();
+  std::string err;
+  const std::string j = R"({"format":1,"id":"b","name":"B","layout":{"bed":100}})";
+  CHECK(parseRoom(j.data(), j.size(), b, err));
+  w.setRoom(b);
+  CHECK(w.view().x == 100);  // sleeping pet moves with its bed
 }
 
 // --------------------------------------------------------------- canvas
@@ -617,6 +745,65 @@ TEST(engine_rejects_bad_pack_and_keeps_running) {
   CHECK(r.engine->pack().cfg.id == before);
   CHECK(!r.engine->lastPackError().empty());
   r.run(1000);
+}
+
+TEST(portal_live_room_edit_and_theme_switch) {
+  EngineRig r("portal");
+  Engine& e = *r.engine;
+  pc::HttpPortal portal(r.storage, 0);
+  portal.start(e);  // socket may fail on port 0 binding; handle() works regardless
+  auto req = [&](const std::string& method, const std::string& target, const std::string& body,
+                 const std::string& extra = "") {
+    return portal.handle(method + " " + target + " HTTP/1.1\r\nHost: x\r\n" + extra +
+                         "Content-Length: " + std::to_string(body.size()) + "\r\n\r\n" + body);
+  };
+  CHECK(req("GET", "/", "").find("Edit the room") != std::string::npos);
+  CHECK(req("GET", "/rooms", "").find("haunted") != std::string::npos);
+  CHECK(req("POST", "/room/select?id=haunted", "").find("200 OK") != std::string::npos);
+  CHECK(e.room().cfg.id == "haunted");
+  CHECK(req("POST", "/room/select?id=..%2Fetc", "").find("400") != std::string::npos);
+
+  // Live edit: move the bed, change the wall colour.
+  std::string room = req("GET", "/room", "");
+  room = room.substr(room.find("\r\n\r\n") + 4);
+  RoomConfig cfg;
+  std::string err;
+  CHECK(parseRoom(room.data(), room.size(), cfg, err));
+  cfg.scene(SceneId::House).spots[0].x = 90;  // bed
+  cfg.colors.wall = rgb(255, 0, 0);
+  e.handleGesture({Gesture::SwipeDown, 120, 120});  // somewhere else
+  CHECK(req("POST", "/room", roomToJson(cfg)).find("200 OK") != std::string::npos);
+  CHECK(e.room().cfg.id == "custom");
+  CHECK(e.room().cfg.colors.wall == rgb(255, 0, 0));
+  CHECK(e.room().cfg.spotX(SceneId::House, "bed", 0) == 90);
+  CHECK(e.screen() == Screen::Home);  // shows the change live
+  CHECK(req("POST", "/room", "{\"format\":1}").find("400") != std::string::npos);
+  CHECK(e.room().cfg.colors.wall == rgb(255, 0, 0));  // bad edit ignored
+
+  // Uploads land in the right folder; unsafe names are refused.
+  std::string mp = "--XYZ\r\nContent-Disposition: form-data; name=\"file\"; filename=\"room.json\"\r\n"
+                   "Content-Type: application/json\r\n\r\n"
+                   "{\"format\":1,\"id\":\"den\",\"name\":\"Den\"}\r\n--XYZ--\r\n";
+  std::string ct = "Content-Type: multipart/form-data; boundary=XYZ\r\n";
+  CHECK(req("POST", "/upload?kind=room&id=den", mp, ct).find("200 OK") != std::string::npos);
+  CHECK(e.selectRoom("den"));
+  CHECK(req("POST", "/upload?kind=room&id=..", mp, ct).find("400") != std::string::npos);
+  CHECK(req("POST", "/upload?kind=exe&id=den", mp, ct).find("400") != std::string::npos);
+  std::string path;
+  CHECK(!portalUploadPath("pack", "x", "run.sh", path, err));
+  CHECK(portalUploadPath("pack", "x", "sprites.dps", path, err) && path == "/packs/x/sprites.dps");
+  portal.stop();
+}
+
+TEST(engine_rain_redraws_window_only_in_house) {
+  EngineRig r("rain");
+  Engine& e = *r.engine;
+  e.setWeather(Weather::Rain);
+  r.run(Engine::kTickMs * 2);
+  CHECK(e.ambience().weather == Weather::Rain);
+  uint32_t full = e.renderStats().fullRedraws;
+  r.run(Engine::kTickMs * 20);
+  if (e.world().view().scene == SceneId::House) CHECK(e.renderStats().fullRedraws == full);
 }
 
 int main() {

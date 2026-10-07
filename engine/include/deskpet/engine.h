@@ -12,6 +12,7 @@
 #include "deskpet/pack.h"
 #include "deskpet/pet.h"
 #include "deskpet/render.h"
+#include "deskpet/room.h"
 #include "deskpet/world.h"
 
 namespace dp {
@@ -26,7 +27,7 @@ struct RenderStats {
   uint32_t fullRedraws = 0;
 };
 
-class Engine {
+class Engine : public PortalHost {
  public:
   static constexpr uint32_t kTickMs = 280;
   static constexpr int kStripRows = 16;
@@ -44,6 +45,16 @@ class Engine {
   float timeScale() const { return timeScale_; }
   bool selectPack(const std::string& id);
   std::vector<std::string> listPacks();
+  std::vector<std::string> listRooms();
+  void setWeather(Weather w);  // also fed by Platform::weather
+  void openPortal() { startPortal(); invalidateAll(); }  // room editor without the Upload screen
+
+  // PortalHost (room editor and theme switching from the phone/PC).
+  std::string roomJson() override;
+  std::vector<std::string> roomIds() override { return listRooms(); }
+  std::string activeRoomId() override { return room_.cfg.id; }
+  bool applyRoomJson(const std::string& json, std::string& err) override;
+  bool selectRoom(const std::string& id) override;
   void save();
 
   Pet& pet() { return pet_; }
@@ -51,10 +62,14 @@ class Engine {
   World& world() { return world_; }
   AlertCenter& alerts() { return alerts_; }
   const LoadedPack& pack() const { return pack_; }
+  const LoadedRoom& room() const { return room_; }
+  const Ambience& ambience() const { return amb_; }
+  bool portalOpen() const { return portalOpen_; }
   Screen screen() const { return screen_; }
   bool dnd() const { return dnd_; }
   const RenderStats& renderStats() const { return rstats_; }
   const std::string& lastPackError() const { return packError_; }
+  const std::string& lastRoomError() const { return roomError_; }
 
  private:
   // Engine flow.
@@ -69,7 +84,10 @@ class Engine {
   void restorePet();
   void log(const std::string& line);
   int64_t now();
-  bool night();
+  Ambience computeAmbience();
+  void updateAmbience();
+  void startPortal();
+  void stopPortal();
   PetLook look() const;
 
   // Rendering.
@@ -103,6 +121,11 @@ class Engine {
   GestureRecognizer gestures_;
   LoadedPack pack_;
   std::string packError_;
+  LoadedRoom room_;
+  std::string roomError_;
+  Weather weather_ = Weather::Unknown;
+  Ambience amb_;
+  bool portalOpen_ = false;
 
   Screen screen_ = Screen::Home;
   bool dnd_ = false;

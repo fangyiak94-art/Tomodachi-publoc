@@ -12,12 +12,27 @@ constexpr uint16_t kEatTicks = 6;
 constexpr uint16_t kPlayTicks = 10;
 }  // namespace
 
-void World::reset(const PackConfig& pack, uint32_t seed) {
-  pack_ = &pack;
+void World::setRoom(const RoomConfig& room) {
+  room_ = &room;
+  const SceneConfig& sc = room.scene(v_.scene);
+  v_.groundY = sc.groundY;
+  if (v_.activity == Activity::Sleeping) {
+    v_.x = spotX(SceneId::House, "bed", 60);
+  } else {
+    if (v_.x < sc.minX) v_.x = sc.minX;
+    if (v_.x > sc.maxX) v_.x = sc.maxX;
+  }
+  plan_.clear();
+  wanderTarget_ = -1;
+  sceneChanged_ = true;
+}
+
+void World::reset(const RoomConfig& room, uint32_t seed) {
+  room_ = &room;
   rng_ = Rng(seed);
   v_ = ActorView();
-  v_.groundY = pack.scene(SceneId::House).groundY;
-  v_.x = (pack.scene(SceneId::House).minX + pack.scene(SceneId::House).maxX) / 2;
+  v_.groundY = room.scene(SceneId::House).groundY;
+  v_.x = (room.scene(SceneId::House).minX + room.scene(SceneId::House).maxX) / 2;
   plan_.clear();
   stepTicks_ = pauseTicks_ = outingTicks_ = 0;
   jumpTicks_ = lookTicks_ = 0;
@@ -32,14 +47,14 @@ bool World::sceneChangedSinceLastCheck() {
 }
 
 int16_t World::spotX(SceneId scene, const char* name, int16_t def) const {
-  const Spot* s = pack_->scene(scene).spot(name);
+  const Spot* s = room_->scene(scene).spot(name);
   return s ? s->x : def;
 }
 
 void World::placeInBed() {
   plan_.clear();
   v_.scene = SceneId::House;
-  v_.groundY = pack_->scene(SceneId::House).groundY;
+  v_.groundY = room_->scene(SceneId::House).groundY;
   v_.x = spotX(SceneId::House, "bed", 60);
   v_.activity = Activity::Sleeping;
   sceneChanged_ = true;
@@ -107,7 +122,7 @@ void World::requestWalk(Pet& pet) {
   plan_.clear();
   plan_.push_back({StepKind::WalkTo, spotX(SceneId::House, "door", 184)});
   plan_.push_back({StepKind::Enter, static_cast<int16_t>(SceneId::Yard)});
-  const SceneConfig& yard = pack_->scene(SceneId::Yard);
+  const SceneConfig& yard = room_->scene(SceneId::Yard);
   plan_.push_back({StepKind::WalkTo, static_cast<int16_t>(rng_.range(yard.minX, yard.maxX - 30))});
 }
 
@@ -148,7 +163,7 @@ void World::startOuting(Pet& pet) {
 void World::idleBehaviour(Pet& pet) {
   const Tuning& t = pet.tuning();
   const Mood mood = pet.mood();
-  const SceneConfig& sc = pack_->scene(v_.scene);
+  const SceneConfig& sc = room_->scene(v_.scene);
 
   // Autonomy first.
   if (pet.stats().energy < t.autoSleepBelow) {
@@ -156,14 +171,14 @@ void World::idleBehaviour(Pet& pet) {
     return;
   }
   if (v_.scene == SceneId::House) {
-    if (mood == Mood::Happy && pet.stats().energy > t.outingEnergyMin &&
+    if (!badWeather_ && mood == Mood::Happy && pet.stats().energy > t.outingEnergyMin &&
         rng_.chance(t.outingChancePct)) {
       startOuting(pet);
       return;
     }
   } else {
     ++outingTicks_;
-    if (pet.stats().energy < t.tiredBelow || pet.stats().fun < t.sadBelow ||
+    if (badWeather_ || pet.stats().energy < t.tiredBelow || pet.stats().fun < t.sadBelow ||
         outingTicks_ >= t.outingMaxTicks) {
       requestHome(pet);
       return;
@@ -224,7 +239,7 @@ void World::tick(Pet& pet) {
     case StepKind::Enter: {
       SceneId target = static_cast<SceneId>(s.arg);
       v_.scene = target;
-      v_.groundY = pack_->scene(target).groundY;
+      v_.groundY = room_->scene(target).groundY;
       v_.x = spotX(target, "door", 180);
       v_.facing = -1;
       sceneChanged_ = true;

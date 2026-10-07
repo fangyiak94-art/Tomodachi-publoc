@@ -26,6 +26,25 @@ int isqrt(int64_t v) {
 }
 }  // namespace
 
+Color Tint::apply(Color c) const {
+  if (identity()) return c;
+  uint32_t rr = ((c >> 11) & 31) * r >> 8;
+  uint32_t gg = ((c >> 5) & 63) * g >> 8;
+  uint32_t bb = (c & 31) * b >> 8;
+  if (rr > 31) rr = 31;
+  if (gg > 63) gg = 63;
+  if (bb > 31) bb = 31;
+  return static_cast<Color>((rr << 11) | (gg << 5) | bb);
+}
+
+Tint Tint::blend(const Tint& o, int k) const {
+  Tint t;
+  t.r = static_cast<uint16_t>(r + (int(o.r) - int(r)) * k / 256);
+  t.g = static_cast<uint16_t>(g + (int(o.g) - int(g)) * k / 256);
+  t.b = static_cast<uint16_t>(b + (int(o.b) - int(b)) * k / 256);
+  return t;
+}
+
 Canvas::Canvas(Color* buffer, const Rect& area)
     : buf_(buffer), area_(area), clip_(area) {}
 
@@ -34,6 +53,7 @@ void Canvas::span(int x0, int x1, int y, Color c) {
   if (x0 < clip_.x) x0 = clip_.x;
   if (x1 >= clip_.right()) x1 = clip_.right() - 1;
   if (x1 < x0) return;
+  c = tint_.apply(c);
   Color* p = buf_ + (y - area_.y) * area_.w + (x0 - area_.x);
   for (int x = x0; x <= x1; ++x) *p++ = c;
 }
@@ -44,7 +64,7 @@ void Canvas::fill(Color c) {
 
 void Canvas::pixel(int x, int y, Color c) {
   if (!clip_.contains(x, y)) return;
-  buf_[(y - area_.y) * area_.w + (x - area_.x)] = c;
+  buf_[(y - area_.y) * area_.w + (x - area_.x)] = tint_.apply(c);
 }
 
 void Canvas::fillRect(int x, int y, int w, int h, Color c) {
@@ -168,6 +188,8 @@ void Canvas::image(const Image4& img, int frame, int x, int y, int scale, bool f
   Rect dst = Rect::intersect(Rect(x, y, img.w * scale, img.h * scale), clip_);
   if (dst.empty()) return;
   const uint8_t* base = img.data + img.frameBytes() * static_cast<uint32_t>(frame);
+  Color pal[16];
+  for (int i = 0; i < 16; ++i) pal[i] = tint_.apply(img.palette[i]);
   for (int yy = dst.y; yy < dst.bottom(); ++yy) {
     int sy = (yy - y) / scale;
     Color* row = buf_ + (yy - area_.y) * area_.w;
@@ -178,7 +200,7 @@ void Canvas::image(const Image4& img, int frame, int x, int y, int scale, bool f
       uint8_t b = base[i >> 1];
       uint8_t idx = (i & 1) ? (b & 0x0F) : (b >> 4);
       if (transparent0 && idx == 0) continue;
-      row[xx - area_.x] = img.palette[idx];
+      row[xx - area_.x] = pal[idx];
     }
   }
 }

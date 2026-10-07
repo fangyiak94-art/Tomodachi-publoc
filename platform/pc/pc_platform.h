@@ -76,6 +76,8 @@ class ScriptInput : public Input {
   int16_t tx = 0, ty = 0;
 };
 
+class MockWeather;
+
 // Reads the same JSON the Apps Script returns from a file, re-reading it
 // every `intervalMs` so it can be edited while the simulator runs. Events
 // may use "startIn"/"endIn" (seconds from now) instead of absolute times.
@@ -85,6 +87,8 @@ class FileCalendar : public CalendarSource {
       : path_(std::move(path)), clock_(clock), interval_(intervalMs) {}
   bool poll(std::vector<CalendarEvent>& out) override;
   void addEvent(const CalendarEvent& e) { extra_.push_back(e); force_ = true; }
+  // The mock file may carry {"weather": "rain"} like the real feed.
+  void setWeatherSink(MockWeather* w) { weather_ = w; }
 
  private:
   std::string path_;
@@ -94,6 +98,24 @@ class FileCalendar : public CalendarSource {
   bool first_ = true, force_ = false;
   int64_t base_ = 0;
   std::vector<CalendarEvent> extra_;
+  MockWeather* weather_ = nullptr;
+  std::string lastWeather_;
+};
+
+class MockWeather : public WeatherSource {
+ public:
+  bool poll(Weather& out) override {
+    if (!changed) return false;
+    changed = false;
+    out = value;
+    return true;
+  }
+  void set(Weather w) {
+    value = w;
+    changed = true;
+  }
+  Weather value = Weather::Unknown;
+  bool changed = false;
 };
 
 class QueueNotifications : public NotificationSource {

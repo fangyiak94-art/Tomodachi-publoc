@@ -1,5 +1,7 @@
 #include "deskpet/alerts.h"
 
+#include "deskpet/room.h"
+
 #include <ArduinoJson.h>
 
 #include <algorithm>
@@ -33,6 +35,17 @@ bool parseCalendarJson(const char* data, size_t len, std::vector<CalendarEvent>&
             [](const CalendarEvent& a, const CalendarEvent& b) { return a.start < b.start; });
   out = evs;
   return true;
+}
+
+bool parseWeatherJson(const char* data, size_t len, Weather& out) {
+  if (!data || len == 0 || len > 16 * 1024) return false;
+  JsonDocument filter;
+  filter["weather"] = true;
+  JsonDocument doc;
+  if (deserializeJson(doc, data, len, DeserializationOption::Filter(filter))) return false;
+  JsonVariantConst w = doc["weather"];
+  const char* name = w.is<const char*>() ? w.as<const char*>() : w["code"].as<const char*>();
+  return weatherFromName(name, out) && out != Weather::Unknown;
 }
 
 static std::string keyOf(const CalendarEvent& e) {

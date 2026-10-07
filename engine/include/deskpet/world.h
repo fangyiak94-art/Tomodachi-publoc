@@ -4,8 +4,8 @@
 #include <cstdint>
 #include <vector>
 
-#include "deskpet/pack.h"
 #include "deskpet/pet.h"
+#include "deskpet/room.h"
 #include "deskpet/types.h"
 
 namespace dp {
@@ -31,8 +31,12 @@ struct ActorView {
 
 class World {
  public:
-  void reset(const PackConfig& pack, uint32_t seed);
-  void setPack(const PackConfig& pack) { pack_ = &pack; }
+  void reset(const RoomConfig& room, uint32_t seed);
+  // Swap the room theme live. Keeps the pet where it is (clamped to the
+  // new room's walkable range).
+  void setRoom(const RoomConfig& room);
+  // Rain or snow: no outings, and a pet that is outside comes home.
+  void setBadWeather(bool bad) { badWeather_ = bad; }
 
   // One behaviour step. May change pet stats (eating, playing...).
   void tick(Pet& pet);
@@ -68,7 +72,8 @@ class World {
   void idleBehaviour(Pet& pet);
   bool walkToward(int16_t target, int speed);
 
-  const PackConfig* pack_ = nullptr;
+  const RoomConfig* room_ = nullptr;
+  bool badWeather_ = false;
   Rng rng_;
   ActorView v_;
   std::vector<Step> plan_;

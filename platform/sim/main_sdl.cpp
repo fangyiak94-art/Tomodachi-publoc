@@ -7,10 +7,15 @@
 //   esc/bksp    BOOT (back)
 //   n           phone notification  m      meeting in 10 minutes
 //   f           cycle speed 1x / 60x / 600x (pet time only)
+//   w           cycle weather: clear, cloudy, rain, snow
+//   h           jump the clock +3 hours (see day/night lighting)
 //   1           zoom 1:1 (real panel size) / 2x / 3x
 //   p           save screenshot     q      quit
 //
-//   deskpet_sim [--fs fs] [--state .deskpet-state] [--calendar mock/calendar.json]
+// The room editor is served at http://localhost:8080 while Settings > UPLOAD
+// is open (or while "EDIT" shows on the home screen).
+//
+//   deskpet_sim [--edit] [--fs fs] [--state .deskpet-state] [--calendar mock/calendar.json] [--port 8080]
 #include <SDL.h>
 
 #include <atomic>
@@ -22,6 +27,7 @@
 #include <string>
 
 #include "deskpet/engine.h"
+#include "http_portal.h"
 #include "pc_platform.h"
 
 using namespace dp;
@@ -31,7 +37,8 @@ namespace {
 class SdlClock : public Clock {
  public:
   uint32_t millis() override { return SDL_GetTicks(); }
-  int64_t epoch() override { return static_cast<int64_t>(std::time(nullptr)); }
+  int64_t epoch() override { return static_cast<int64_t>(std::time(nullptr)) + skew; }
+  int64_t skew = 0;  // "h" key moves the clock to preview day/night
   int32_t utcOffsetMinutes() override {
     std::time_t t = std::time(nullptr);
     std::tm local = *std::localtime(&t);
@@ -104,10 +111,19 @@ class SdlBuzzer : public Buzzer {
 
 int main(int argc, char** argv) {
   std::string fsRoot = "fs", state = ".deskpet-state", calendarPath = "mock/calendar.json";
-  for (int i = 1; i + 1 < argc; i += 2) {
-    if (!std::strcmp(argv[i], "--fs")) fsRoot = argv[i + 1];
-    else if (!std::strcmp(argv[i], "--state")) state = argv[i + 1];
-    else if (!std::strcmp(argv[i], "--calendar")) calendarPath = argv[i + 1];
+  int port = 8080;
+  bool edit = false;
+  for (int i = 1; i < argc; ++i) {
+    auto value = [&](const char* flag) { return !std::strcmp(argv[i], flag) && i + 1 < argc; };
+    if (!std::strcmp(argv[i], "--edit")) edit = true;  // open the room editor at start
+    else if (value("--fs")) fsRoot = argv[++i];
+    else if (value("--state")) state = argv[++i];
+    else if (value("--calendar")) calendarPath = argv[++i];
+    else if (value("--port")) port = std::atoi(argv[++i]);
+    else {
+      std::fprintf(stderr, "unknown argument %s\n", argv[i]);
+      return 1;
+    }
   }
   if (!std::filesystem::exists(fsRoot + "/packs")) {
     std::fprintf(stderr, "No packs in '%s/packs'. Run from the repo root or pass --fs.\n",
@@ -137,6 +153,9 @@ int main(int argc, char** argv) {
   bool audio = buzzer.open();
   pc::FileCalendar calendar(calendarPath, &clock);
   pc::QueueNotifications notifications;
+  pc::MockWeather weather;
+  calendar.setWeatherSink(&weather);
+  pc::HttpPortal portal(storage, port);
 
   Platform p;
   p.display = &display;
@@ -146,14 +165,18 @@ int main(int argc, char** argv) {
   p.buzzer = audio ? &buzzer : nullptr;
   p.calendar = &calendar;
   p.notifications = &notifications;
+  p.weather = &weather;
+  p.uploader = &portal;
   p.log = [](const char* l) { std::printf("%s\n", l); };
   p.connectivity = []() { return ConnectivityStatus{"sim", "sim"}; };
   p.seed = static_cast<uint32_t>(std::time(nullptr));
 
   Engine engine(p);
   engine.begin();
+  if (edit) engine.openPortal();
   std::printf("Desk Pet simulator. Mouse = finger. Keys: arrows swipe, space tap, enter double tap,\n"
-              "l long press, esc BOOT, n notification, m meeting, f speed, 1 zoom, p screenshot, q quit.\n");
+              "l long press, esc BOOT, n notification, m meeting, w weather, h +3h, f speed, 1 zoom,\n"
+              "p screenshot, q quit. Room editor: Settings > UPLOAD, then http://localhost:%d\n", port);
 
   static const Notification samples[] = {
       {"WhatsApp", "Ali", "Lunch at 1? The usual place"},
@@ -194,6 +217,16 @@ int main(int argc, char** argv) {
           speed = (speed + 1) % 3;
           engine.setTimeScale(speeds[speed]);
           std::printf("pet time x%.0f\n", speeds[speed]);
+          break;
+        case SDLK_w: {
+          static const Weather cycle[] = {Weather::Clear, Weather::Cloudy, Weather::Rain, Weather::Snow};
+          static int wi = 0;
+          weather.set(cycle[wi++ % 4]);
+          break;
+        }
+        case SDLK_h:
+          clock.skew += 3 * 3600;
+          std::printf("clock +3h\n");
           break;
         case SDLK_1:
           zoom = zoom % 3 + 1;

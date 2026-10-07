@@ -6,12 +6,6 @@
 
 namespace dp {
 
-const Spot* SceneConfig::spot(const char* name) const {
-  for (const Spot& s : spots)
-    if (s.name == name) return &s;
-  return nullptr;
-}
-
 const Anim* PackConfig::anim(const std::string& n) const {
   for (const Anim& a : anims)
     if (a.name == n) return &a;
@@ -33,10 +27,6 @@ const EvolutionStage* PackConfig::stageFor(uint32_t level) const {
 
 PackConfig defaultPack() {
   PackConfig p;
-  SceneConfig& house = p.scenes[static_cast<int>(SceneId::House)];
-  house.spots = {{"bed", 62, 182}, {"bowl", 150, 182}, {"door", 184, 182}};
-  SceneConfig& yard = p.scenes[static_cast<int>(SceneId::Yard)];
-  yard.spots = {{"door", 176, 182}, {"tree", 70, 182}};
   p.sounds = {
       {"meeting", "meeting:d=8,o=6,b=180:c,e,g,p,c,e,g"},
       {"notify", "notify:d=16,o=6,b=200:e,g"},
@@ -111,37 +101,6 @@ bool parseStat(const char* s, Stat& out) {
   else if (!std::strcmp(s, "fun")) out = Stat::Fun;
   else if (!std::strcmp(s, "energy")) out = Stat::Energy;
   else return false;
-  return true;
-}
-
-bool parseScene(JsonVariantConst v, SceneConfig& sc, std::string& err, const char* name) {
-  if (v.isNull()) return true;
-  if (!optionalFile(v["background"], sc.background, err, name)) return false;
-  JsonObjectConst spots = v["spots"];
-  if (!spots.isNull()) {
-    std::vector<Spot> parsed;
-    for (JsonPairConst kv : spots) {
-      if (parsed.size() >= 16) { err = "too many spots"; return false; }
-      JsonArrayConst xy = kv.value();
-      if (xy.size() != 2) { err = "spot must be [x, y]"; return false; }
-      Spot s;
-      s.name = kv.key().c_str();
-      if (s.name.empty() || s.name.size() > 16) { err = "bad spot name"; return false; }
-      s.x = static_cast<int16_t>(num(xy[0], 120, 0, kScreenW - 1));
-      s.y = static_cast<int16_t>(num(xy[1], 182, 0, kScreenH - 1));
-      parsed.push_back(s);
-    }
-    // Spots named in the manifest replace the defaults with the same name.
-    for (const Spot& s : parsed) {
-      bool replaced = false;
-      for (Spot& d : sc.spots)
-        if (d.name == s.name) { d = s; replaced = true; }
-      if (!replaced) sc.spots.push_back(s);
-    }
-  }
-  sc.groundY = static_cast<int16_t>(num(v["groundY"], sc.groundY, 60, kScreenH - 20));
-  sc.minX = static_cast<int16_t>(num(v["minX"], sc.minX, 20, 220));
-  sc.maxX = static_cast<int16_t>(num(v["maxX"], sc.maxX, sc.minX, 220));
   return true;
 }
 
@@ -256,16 +215,6 @@ bool parseManifest(const char* data, size_t len, PackConfig& out, std::string& e
     }
   }
 
-  JsonObjectConst scenes = doc["scenes"];
-  if (!parseScene(scenes["house"], p.scenes[0], err, "house")) return false;
-  if (!parseScene(scenes["yard"], p.scenes[1], err, "yard")) return false;
-  for (const SceneConfig& sc : p.scenes)
-    if (!sc.spot("door")) { err = "every scene needs a 'door' spot"; return false; }
-  if (!p.scene(SceneId::House).spot("bed") || !p.scene(SceneId::House).spot("bowl")) {
-    err = "house needs 'bed' and 'bowl' spots";
-    return false;
-  }
-
   JsonObjectConst sounds = doc["sounds"];
   for (JsonPairConst kv : sounds) {
     std::string tune;
@@ -331,8 +280,6 @@ bool loadImage(Storage& st, const std::string& path, size_t maxBytes, std::strin
 
 void LoadedPack::rebind() {
   if (hasSprite) sprite.data = reinterpret_cast<const uint8_t*>(spriteBlob.data()) + kImageHeaderBytes;
-  for (int i = 0; i < kSceneCount; ++i)
-    if (hasBg[i]) bg[i].data = reinterpret_cast<const uint8_t*>(bgBlob[i].data()) + kImageHeaderBytes;
 }
 
 bool loadPack(Storage& storage, const std::string& id, LoadedPack& out, std::string& err) {
@@ -361,13 +308,6 @@ bool loadPack(Storage& storage, const std::string& id, LoadedPack& out, std::str
           return false;
         }
     p.hasSprite = true;
-  }
-  for (int i = 0; i < kSceneCount; ++i) {
-    const std::string& bg = p.cfg.scenes[i].background;
-    if (bg.empty()) continue;
-    if (!loadImage(storage, dir + bg, kMaxBackgroundBytes, p.bgBlob[i], p.bg[i], err))
-      return false;
-    p.hasBg[i] = true;
   }
   out = std::move(p);
   out.rebind();

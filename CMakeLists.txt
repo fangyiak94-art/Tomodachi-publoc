@@ -31,7 +31,7 @@ target_compile_definitions(deskpet_engine PUBLIC ARDUINOJSON_USE_LONG_LONG=1)
 target_compile_options(deskpet_engine PRIVATE -Wall -Wextra)
 
 # --- PC HAL implementations ---
-add_library(deskpet_pc STATIC platform/pc/pc_platform.cpp)
+add_library(deskpet_pc STATIC platform/pc/pc_platform.cpp platform/pc/http_portal.cpp)
 target_include_directories(deskpet_pc PUBLIC platform/pc)
 target_link_libraries(deskpet_pc PUBLIC deskpet_engine)
 

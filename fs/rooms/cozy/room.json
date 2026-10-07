@@ -1,0 +1,35 @@
+{
+  "format": 1,
+  "id": "cozy",
+  "name": "Cozy",
+  "colors": {
+    "wall": "#FAEACE",
+    "wainscot": "#ECCEA6",
+    "trim": "#D2AA78",
+    "floor": "#C48C5C",
+    "plank": "#AA7448",
+    "frame": "#96643C",
+    "door": "#A0683C",
+    "bed": "#8C5A34",
+    "blanket": "#7896E6",
+    "pillow": "#FFFFFF",
+    "bowl": "#E8565C",
+    "grass": "#6CBA58",
+    "houseWall": "#F0CC9C",
+    "roof": "#C85448",
+    "leaves": "#469646",
+    "trunk": "#825632"
+  },
+  "layout": {
+    "groundY": 182,
+    "window": [
+      84,
+      46
+    ],
+    "bed": 62,
+    "bowl": 150,
+    "door": 184,
+    "yardDoor": 176,
+    "tree": 70
+  }
+}

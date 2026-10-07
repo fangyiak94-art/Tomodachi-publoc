@@ -111,11 +111,33 @@ class NotificationSource {
   virtual bool poll(Notification& out) = 0;
 };
 
-// Optional: a target that can receive packs (Wi-Fi portal, Web Serial...).
+// Current weather (rain/snow change the room and keep the pet inside).
+class WeatherSource {
+ public:
+  virtual ~WeatherSource() = default;
+  virtual bool poll(Weather& out) = 0;
+};
+
+// What the portal (web page on the phone/PC) can ask the engine to do.
+// Implemented by the Engine; the portal only moves bytes over HTTP.
+class PortalHost {
+ public:
+  virtual ~PortalHost() = default;
+  virtual std::string roomJson() = 0;  // the active room theme
+  virtual std::vector<std::string> roomIds() = 0;
+  virtual std::string activeRoomId() = 0;
+  // Live edit from the room editor: validated, saved as room "custom" and
+  // shown on screen immediately.
+  virtual bool applyRoomJson(const std::string& json, std::string& err) = 0;
+  virtual bool selectRoom(const std::string& id) = 0;
+};
+
+// Optional: a target that serves the portal (Wi-Fi hotspot on the board,
+// localhost web server in the simulator): room editor and file uploads.
 class PackUploader {
  public:
   virtual ~PackUploader() = default;
-  virtual void start() = 0;
+  virtual void start(PortalHost& host) = 0;
   virtual void stop() = 0;
   virtual void loop() {}
   // Up to 3 short lines shown on the upload screen.
@@ -136,6 +158,7 @@ struct Platform {
   Buzzer* buzzer = nullptr;                    // optional
   CalendarSource* calendar = nullptr;          // optional
   NotificationSource* notifications = nullptr; // optional
+  WeatherSource* weather = nullptr;            // optional
   PackUploader* uploader = nullptr;            // optional
   void (*log)(const char* line) = nullptr;     // optional
   ConnectivityStatus (*connectivity)() = nullptr;  // optional

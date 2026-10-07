@@ -1,0 +1,35 @@
+{
+  "format": 1,
+  "id": "beach",
+  "name": "Beach",
+  "colors": {
+    "wall": "#BEE6F0",
+    "wainscot": "#F4E2B8",
+    "trim": "#FFFFFF",
+    "floor": "#E8CF96",
+    "plank": "#D4B878",
+    "frame": "#FFFFFF",
+    "door": "#3C9CC8",
+    "bed": "#F0F0F0",
+    "blanket": "#FF8C6E",
+    "pillow": "#FFF6D8",
+    "bowl": "#3C9CC8",
+    "grass": "#F0D896",
+    "houseWall": "#FFFFFF",
+    "roof": "#3C9CC8",
+    "leaves": "#48B464",
+    "trunk": "#A0784C"
+  },
+  "layout": {
+    "groundY": 184,
+    "window": [
+      78,
+      44
+    ],
+    "bed": 60,
+    "bowl": 152,
+    "door": 184,
+    "yardDoor": 178,
+    "tree": 66
+  }
+}

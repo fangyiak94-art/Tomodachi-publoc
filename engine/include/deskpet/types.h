@@ -13,6 +13,8 @@ constexpr Color rgb(uint8_t r, uint8_t g, uint8_t b) {
   return static_cast<Color>(((r & 0xF8) << 8) | ((g & 0xFC) << 3) | (b >> 3));
 }
 
+enum class Weather : uint8_t { Unknown, Clear, Cloudy, Rain, Snow };
+
 struct Rect {
   int16_t x = 0, y = 0, w = 0, h = 0;
 

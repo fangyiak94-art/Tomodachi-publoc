@@ -3,7 +3,8 @@
 // writes screenshots of every screen. Exit code != 0 if the gate fails.
 //
 //   deskpet_headless [--fs fs] [--out shots] [--seed 7]
-//   deskpet_headless --preview <pack-id>   screenshots of one pack, no gate
+//   deskpet_headless --preview <pack-id> [--room id] [--weather rain] [--hour 21]
+//                                          screenshots of a pack/room, no gate
 #include <cstdio>
 #include <cstring>
 #include <filesystem>
@@ -25,6 +26,7 @@ struct Harness {
   pc::SilentBuzzer buzzer;
   pc::QueueNotifications notifications;
   pc::FileCalendar calendar;
+  pc::MockWeather weather;
   Engine engine;
 
   Harness(const std::string& fsRoot, const std::string& writeRoot, uint32_t seed)
@@ -45,6 +47,7 @@ struct Harness {
     p.buzzer = &buzzer;
     p.calendar = &calendar;
     p.notifications = &notifications;
+    p.weather = &weather;
     p.log = [](const char* l) { std::printf("  [log] %s\n", l); };
     p.connectivity = []() { return ConnectivityStatus{"mock", "mock"}; };
     p.seed = seed;
@@ -83,12 +86,16 @@ void check(bool ok, const char* what) {
 int main(int argc, char** argv) {
   std::string fsRoot = "fs", out = "shots";
   uint32_t seed = 7;
-  std::string preview;
+  std::string preview, room, weatherArg;
+  int hour = -1;
   for (int i = 1; i + 1 < argc; i += 2) {
     if (!std::strcmp(argv[i], "--fs")) fsRoot = argv[i + 1];
     else if (!std::strcmp(argv[i], "--out")) out = argv[i + 1];
     else if (!std::strcmp(argv[i], "--seed")) seed = static_cast<uint32_t>(std::atoi(argv[i + 1]));
     else if (!std::strcmp(argv[i], "--preview")) preview = argv[i + 1];
+    else if (!std::strcmp(argv[i], "--room")) room = argv[i + 1];
+    else if (!std::strcmp(argv[i], "--weather")) weatherArg = argv[i + 1];
+    else if (!std::strcmp(argv[i], "--hour")) hour = std::atoi(argv[i + 1]);
   }
   std::filesystem::create_directories(out);
   const std::string state = out + "/state";
@@ -103,18 +110,31 @@ int main(int argc, char** argv) {
     std::printf("  shot %s\n", p.c_str());
   };
 
+  if (hour >= 0) h.clock.epochBase = 1791331200 + (hour - 8 + 24) % 24 * 3600;  // local = UTC+8
   e.begin();
   if (!preview.empty()) {
     if (!e.selectPack(preview)) {
       std::printf("pack '%s' rejected: %s\n", preview.c_str(), e.lastPackError().c_str());
       return 1;
     }
+    if (!room.empty() && !e.selectRoom(room)) {
+      std::printf("room '%s' rejected: %s\n", room.c_str(), e.lastRoomError().c_str());
+      return 1;
+    }
+    Weather w;
+    if (!weatherArg.empty()) {
+      if (!weatherFromName(weatherArg.c_str(), w)) {
+        std::printf("weather must be clear, cloudy, rain or snow\n");
+        return 1;
+      }
+      h.weather.set(w);
+    }
     h.ticks(30);
     shot("preview_house");
     h.gesture(Gesture::SwipeUp);
     h.gesture(Gesture::Tap, 164, 162);  // WALK
     h.until([&] { return e.world().view().scene == SceneId::Yard; }, 80);
-    h.ticks(10);
+    h.ticks(3);
     shot("preview_yard");
     h.gesture(Gesture::DoubleTap);
     h.until([&] { return e.pet().asleep(); }, 160);
@@ -208,11 +228,25 @@ int main(int argc, char** argv) {
 
   // Swap packs at runtime (Settings > Pack), no rebuild.
   h.gesture(Gesture::SwipeDown);
-  h.gesture(Gesture::Tap, 120, 170);
-  check(e.pack().cfg.id == "sprout" && e.pack().hasSprite, "settings: switch to the sprite pack");
+  h.gesture(Gesture::Tap, 120, 130);
+  check(e.pack().cfg.id != "blobby" && e.pack().hasSprite, "settings: switch to the next (sprite) pack");
+  std::string roomBefore = e.room().cfg.id;
+  h.gesture(Gesture::Tap, 120, 174);
+  check(e.room().cfg.id != roomBefore, "settings: switch room theme");
+  shot("10_settings_rooms");
   h.gesture(Gesture::Back);
   h.ticks(20);
-  shot("10_sprout_pack");
+  shot("11_sprout_new_room");
+
+  // The room changes by itself: rain keeps the pet inside.
+  h.weather.set(Weather::Rain);
+  h.ticks(2);
+  check(e.ambience().weather == Weather::Rain, "weather feed reaches the room");
+  h.gesture(Gesture::SwipeUp);
+  h.gesture(Gesture::Tap, 164, 162);  // WALK
+  h.until([&] { return e.world().view().scene == SceneId::Yard; }, 80);
+  bool cameHome = h.until([&] { return e.world().view().scene == SceneId::House; }, 120);
+  check(cameHome, "pet comes back in when it rains");
 
   std::printf("\n%s: %d failure(s)\n", failures ? "GATE FAILED" : "GATE PASSED", failures);
   return failures ? 1 : 0;

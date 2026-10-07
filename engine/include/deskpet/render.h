@@ -4,6 +4,7 @@
 #include "deskpet/gfx.h"
 #include "deskpet/pack.h"
 #include "deskpet/pet.h"
+#include "deskpet/room.h"
 #include "deskpet/world.h"
 
 namespace dp {
@@ -11,14 +12,17 @@ namespace dp {
 struct PetLook {
   Mood mood = Mood::Neutral;
   Color body = 0;
+  Tint light;  // the room's light; the pet gets half of it
+  Color blanket = rgb(120, 150, 230);
 };
 
-void drawScene(Canvas& c, const LoadedPack& pack, const ActorView& a, bool night);
+void drawScene(Canvas& c, const LoadedRoom& room, const ActorView& a, const Ambience& amb);
 void drawPet(Canvas& c, const LoadedPack& pack, const ActorView& a, const PetLook& look);
 
 // Screen area the pet (with hops, heart and Zzz) may touch this tick.
 Rect petBounds(const LoadedPack& pack, const ActorView& a);
-Rect bowlBounds(const PackConfig& pack);
+Rect bowlBounds(const RoomConfig& room);
+Rect windowBounds(const RoomConfig& room);
 
 namespace palette {
 constexpr Color kBlack = rgb(0, 0, 0);

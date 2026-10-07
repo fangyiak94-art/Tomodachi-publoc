@@ -18,6 +18,15 @@ struct Image4 {
   uint32_t frameBytes() const { return (static_cast<uint32_t>(w) * h + 1) / 2; }
 };
 
+// Per-channel light multiplier, 256 = unchanged. Used for day/night and
+// weather lighting without touching any drawing code.
+struct Tint {
+  uint16_t r = 256, g = 256, b = 256;
+  bool identity() const { return r == 256 && g == 256 && b == 256; }
+  Color apply(Color c) const;
+  Tint blend(const Tint& o, int amount256) const;  // move toward o
+};
+
 class Canvas {
  public:
   Canvas(Color* buffer, const Rect& area);
@@ -26,6 +35,8 @@ class Canvas {
   const Rect& clip() const { return clip_; }
   void setClip(const Rect& r) { clip_ = Rect::intersect(r, area_); }
   void resetClip() { clip_ = area_; }
+  void setTint(const Tint& t) { tint_ = t; }
+  const Tint& tint() const { return tint_; }
 
   void fill(Color c);
   void pixel(int x, int y, Color c);
@@ -51,6 +62,7 @@ class Canvas {
   Color* buf_;
   Rect area_;
   Rect clip_;
+  Tint tint_;
 };
 
 }  // namespace dp

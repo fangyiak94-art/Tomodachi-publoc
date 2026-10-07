@@ -36,6 +36,8 @@ checked against the seller's demo. The display reset (-1) and touch INT/RST
 time 1791363600            set the clock (unix seconds)
 meeting 11 Standup         a meeting in 11 minutes, so the alert shows in 1
 notify WhatsApp|Ali|Lunch? a phone notification
+weather rain               change the room's weather (clear|cloudy|rain|snow)
+edit                       open the room editor hotspot
 speed 600                  make pet time run 600x
 stats                      pet JSON + free heap
 ```
@@ -53,8 +55,8 @@ the feed, and turns Wi-Fi off again.
 Build `pio run -e esp32c3-chronos -t upload`, install Chronos on Android,
 and pair with "DeskPet".
 
-## Uploading a pack over Wi-Fi
+## Room editor and uploads over Wi-Fi
 On the device, open Settings › UPLOAD. Join the `DeskPet-XXXX` hotspot with
-the password shown, then open http://192.168.4.1. Enter the pack id, select
-`manifest.json` and the `.dps` files, and upload. Press BOOT to leave
-upload mode (the hotspot turns off), then tap the Pack row to switch.
+the password shown, then open http://192.168.4.1. Edit the room live, or
+upload pet packs and room themes. Press BOOT to finish (the hotspot turns
+off), then pick new packs and rooms in Settings. See [ROOMS.md](ROOMS.md).

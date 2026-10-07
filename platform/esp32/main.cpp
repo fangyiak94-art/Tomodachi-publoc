@@ -7,6 +7,7 @@
 
 #include "board_pins.h"
 #include "deskpet/engine.h"
+#include "deskpet/room.h"
 #include "esp32_hal.h"
 #include "lgfx_board.h"
 
@@ -24,6 +25,7 @@ board::LittleFsStorage storage;
 board::PiezoBuzzer buzzer(DP_PIN_BUZZER);
 board::Secrets secrets;
 board::WifiCalendar calendar(secrets);
+board::FeedWeather weather(calendar);
 board::NotificationQueue notifications;
 board::WifiPortal portal(calendar);
 dp::Engine* engine = nullptr;
@@ -48,7 +50,7 @@ dp::ConnectivityStatus connectivity() {
 
 // Serial console for bring-up without a phone or calendar:
 //   notify App|Title|Body     meeting <minutes> <title>
-//   time <unix seconds>       speed <x>      stats      help
+//   time <unix seconds>       weather rain   speed <x>  stats  help
 String lineBuf;
 void handleCommand(const String& cmd) {
   if (cmd.startsWith("notify ")) {
@@ -77,6 +79,12 @@ void handleCommand(const String& cmd) {
   } else if (cmd.startsWith("time ")) {
     struct timeval tv = {static_cast<time_t>(atoll(cmd.substring(5).c_str())), 0};
     settimeofday(&tv, nullptr);
+  } else if (cmd.startsWith("weather ")) {
+    dp::Weather w;
+    if (dp::weatherFromName(cmd.substring(8).c_str(), w)) calendar.setWeather(w);
+    else Serial.println("weather clear|cloudy|rain|snow");
+  } else if (cmd == "edit") {
+    engine->openPortal();
   } else if (cmd.startsWith("speed ")) {
     engine->setTimeScale(cmd.substring(6).toFloat());
   } else if (cmd == "stats") {
@@ -85,7 +93,7 @@ void handleCommand(const String& cmd) {
                   dp::screenName(engine->screen()));
   } else {
     Serial.println("commands: notify App|Title|Body, meeting <min> <title>, time <epoch>, "
-                   "speed <x>, stats");
+                   "weather <clear|cloudy|rain|snow>, edit, speed <x>, stats");
   }
 }
 
@@ -136,6 +144,7 @@ void setup() {
   p.buzzer = &buzzer;
   p.calendar = &calendar;
   p.notifications = &notifications;
+  p.weather = &weather;
   p.uploader = &portal;
   p.log = logLine;
   p.connectivity = connectivity;

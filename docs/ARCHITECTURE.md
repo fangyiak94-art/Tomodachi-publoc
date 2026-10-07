@@ -10,7 +10,8 @@ targets.
 ```
             ┌─────────────────────────── engine/ (portable C++17) ───────────────────────────┐
             │ Pet (stats, mood) · World (goals, autonomy) · AlertCenter (priority rules)     │
-            │ Pack loader/validator · UI screens · Gesture recognizer · Strip renderer       │
+            │ Pet packs + room themes (validated) · Ambience (time/weather/lights)           │
+            │ UI screens · Portal page + rules · Gesture recognizer · Strip renderer         │
             └───────────────▲──────────────── hal.h interfaces ───────────────▲──────────────┘
                             │                                                 │
    platform/pc (+sim)       │                     platform/esp32              │   future: esp32s3, wasm
@@ -21,7 +22,8 @@ targets.
    SDL square wave ─────────┤ Buzzer              PiezoBuzzer (tone())
    FileCalendar (mock) ─────┤ CalendarSource      WifiCalendar (Apps Script, radio on only to poll)
    key "n" queue ───────────┤ NotificationSource  Chronos BLE / serial console
-   (none) ──────────────────┤ PackUploader        WifiPortal (hotspot + upload page)
+   key "w" / mock file ─────┤ WeatherSource       "weather" in the Apps Script feed
+   HttpPortal (localhost) ──┤ PackUploader        WifiPortal (hotspot, WebServer)
 ```
 
 | HAL interface | Contract |
@@ -35,7 +37,8 @@ targets.
 | `Buzzer::tone(hz)` | One square-wave voice. The engine plays RTTTL itself. |
 | `CalendarSource::poll` | Called every loop. The source decides when to fetch and powers the radio. |
 | `NotificationSource::poll` | Non-blocking. Called every loop. |
-| `PackUploader` | Started and stopped by the Upload screen. |
+| `WeatherSource::poll` | Optional. Rain and snow change the room and keep the pet inside. |
+| `PackUploader` | HTTP transport for the portal. The engine passes itself as `PortalHost` (room JSON, theme list, live edit). The page and validation live in the engine (`portal.cpp`). |
 
 ## Engine loop
 
@@ -65,7 +68,7 @@ redraws the full screen once.
 | `Engine` object (mostly the strip buffer) | ~9 KB |
 | Pack config + strings | ~1–2 KB |
 | Sprite sheet (24×24, 9 frames, 4-bit) | ~2.6 KB; limit 64 KB |
-| Scene backgrounds, if a pack ships them | ~29 KB each at 240×240 4-bit; limit 40 KB |
+| Room backgrounds, if a room theme ships them | ~29 KB each at 240×240 4-bit; limit 40 KB |
 | ArduinoJson documents | transient, a few KB while parsing |
 | Wi-Fi + TLS (calendar fetch) | ~50–70 KB, only while polling |
 | BLE (Chronos) | ~40–60 KB, always on in the `esp32c3-chronos` build |
@@ -89,7 +92,7 @@ mark. Check it after the first flash, with and without Chronos.
    engine doesn't care. Moving to ESP-IDF later means rewriting
    `platform/esp32` only.
 3. **Packs are uploaded as files, not a zip.** The portal takes
-   `manifest.json` plus `.dps` files for a pack id. Unzipping on the C3 is
+   `manifest.json` (pets) or `room.json` (rooms) plus `.dps` files for an id. Unzipping on the C3 is
    possible (the ROM has an inflate routine) but not needed yet. The PC
    Pack Studio can still produce zips and unpack them in the browser before
    uploading.

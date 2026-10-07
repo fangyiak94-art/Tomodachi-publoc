@@ -1,0 +1,35 @@
+{
+  "format": 1,
+  "id": "haunted",
+  "name": "Haunted",
+  "colors": {
+    "wall": "#3E3358",
+    "wainscot": "#2C2442",
+    "trim": "#5A4A7C",
+    "floor": "#3A2E2A",
+    "plank": "#2A201C",
+    "frame": "#1E1A26",
+    "door": "#4A3A2E",
+    "bed": "#2E2438",
+    "blanket": "#6A3C8C",
+    "pillow": "#C8C0D8",
+    "bowl": "#7CC46A",
+    "grass": "#4E6A48",
+    "houseWall": "#5C5470",
+    "roof": "#2E2638",
+    "leaves": "#3E4E3A",
+    "trunk": "#3A2E26"
+  },
+  "layout": {
+    "groundY": 182,
+    "window": [
+      92,
+      40
+    ],
+    "bed": 64,
+    "bowl": 146,
+    "door": 186,
+    "yardDoor": 172,
+    "tree": 64
+  }
+}

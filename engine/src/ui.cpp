@@ -88,10 +88,15 @@ void Engine::drawHud(Canvas& c) {
     c.fillCircle(x, 45, 9, kAmber);
     c.text(x - 2, 38, "!", 2, kInk);
   }
+  if (portalOpen_) {
+    // Live room editing from the phone/PC; BOOT leaves it.
+    c.fillRoundRect(kScreenW / 2 - 30, 58, 60, 20, 8, kBlue);
+    c.textCentered(kScreenW / 2, 61, "EDIT", 2, kWhite);
+  }
 }
 
 void Engine::drawHome(Canvas& c) {
-  drawScene(c, pack_, world_.view(), night());
+  drawScene(c, room_, world_.view(), amb_);
   drawPet(c, pack_, world_.view(), look());
   drawHud(c);
 }
@@ -168,17 +173,15 @@ void Engine::drawSettings(Canvas& c) {
   c.fillRoundRect(28, y + 4, 184, 36, 12, dnd_ ? kAccent : kPanelHi);
   c.textCentered(120, y + 15, dnd_ ? "DND: ON" : "DND: OFF", 2, dnd_ ? kInk : kWhite);
 
-  y = kRowStatus;
-  ConnectivityStatus cs = p_.connectivity ? p_.connectivity() : ConnectivityStatus();
-  std::snprintf(buf, sizeof(buf), "WiFi %s", cs.wifi);
-  c.textCentered(120, y + 6, buf, 2, kMuted);
-  std::snprintf(buf, sizeof(buf), "Phone %s", cs.phone);
-  c.textCentered(120, y + 24, buf, 2, kMuted);
-
   y = kRowPack;
-  c.fillRoundRect(20, y + 4, 200, 36, 12, kPanelHi);
-  std::string pk = "Pack: " + fit(pack_.cfg.name, 8) + " >";
+  c.fillRoundRect(16, y + 4, 208, 36, 12, kPanelHi);
+  std::string pk = "Pet: " + fit(pack_.cfg.name, 9) + " >";
   c.textCentered(120, y + 15, pk.c_str(), 2, packError_.empty() ? kWhite : kAmber);
+
+  y = kRowRoom;
+  c.fillRoundRect(20, y + 4, 200, 36, 12, kPanelHi);
+  std::string rm = "Room: " + fit(room_.cfg.name, 8) + " >";
+  c.textCentered(120, y + 15, rm.c_str(), 2, roomError_.empty() ? kWhite : kAmber);
 
   y = kRowUpload;
   c.fillRoundRect(64, y + 4, 112, 34, 12, kBlue);
@@ -187,14 +190,19 @@ void Engine::drawSettings(Canvas& c) {
 
 void Engine::drawUpload(Canvas& c) {
   c.fill(kBg);
-  title(c, "UPLOAD PACK");
+  title(c, "EDIT & UPLOAD");
+  ConnectivityStatus cs = p_.connectivity ? p_.connectivity() : ConnectivityStatus();
+  char buf[40];
+  std::snprintf(buf, sizeof(buf), "WiFi %s  BT %s", cs.wifi, cs.phone);
+  c.textCentered(kScreenW / 2, 44, fit(buf, 16).c_str(), 2, kMuted);
   std::vector<std::string> lines;
-  if (p_.uploader) lines = p_.uploader->statusLines();
+  if (portalOpen_) lines = p_.uploader->statusLines();
   else lines = {"Not on this", "build yet"};
-  int y = 80;
-  for (size_t i = 0; i < lines.size() && i < 4; ++i, y += 26)
+  int y = 76;
+  for (size_t i = 0; i < lines.size() && i < 4; ++i, y += 24)
     c.textCentered(kScreenW / 2, y, fit(lines[i], 15).c_str(), 2, kWhite);
-  if (!packError_.empty()) c.textCentered(kScreenW / 2, 184, "Last pack bad", 2, kAmber);
+  if (!packError_.empty() || !roomError_.empty())
+    c.textCentered(kScreenW / 2, 178, "Last upload bad", 2, kAmber);
   c.textCentered(kScreenW / 2, 206, "BOOT: exit", 2, kMuted);
 }
 

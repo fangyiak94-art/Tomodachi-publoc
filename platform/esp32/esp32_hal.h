@@ -74,6 +74,12 @@ class WifiCalendar : public dp::CalendarSource {
   }
   const char* status() const;
   void setPaused(bool p) { paused_ = p; }
+  // Weather that came with the last feed ({"weather": "rain"}).
+  bool takeWeather(dp::Weather& out);
+  void setWeather(dp::Weather w) {  // serial console
+    weather_ = w;
+    weatherNew_ = true;
+  }
 
   static constexpr uint32_t kIntervalMs = 5u * 60u * 1000u;
   static constexpr uint32_t kConnectTimeoutMs = 15000;
@@ -87,6 +93,17 @@ class WifiCalendar : public dp::CalendarSource {
   uint32_t lastFetch_ = 0, stateSince_ = 0;
   bool first_ = true, dirty_ = false, ntpStarted_ = false, paused_ = false;
   std::vector<dp::CalendarEvent> remote_, local_;
+  dp::Weather weather_ = dp::Weather::Unknown;
+  bool weatherNew_ = false;
+};
+
+class FeedWeather : public dp::WeatherSource {
+ public:
+  explicit FeedWeather(WifiCalendar& c) : c_(c) {}
+  bool poll(dp::Weather& out) override { return c_.takeWeather(out); }
+
+ private:
+  WifiCalendar& c_;
 };
 
 class NotificationQueue : public dp::NotificationSource {
@@ -99,12 +116,12 @@ class NotificationQueue : public dp::NotificationSource {
   portMUX_TYPE mux_ = portMUX_INITIALIZER_UNLOCKED;
 };
 
-// Wi-Fi hotspot "DeskPet-XXXX" with an upload page at 192.168.4.1. Runs only
-// while the Upload screen is open.
+// Wi-Fi hotspot "DeskPet-XXXX" serving the room editor and uploads at
+// 192.168.4.1. Runs only while the portal is open (Upload screen / EDIT).
 class WifiPortal : public dp::PackUploader {
  public:
   explicit WifiPortal(WifiCalendar& cal) : cal_(cal) {}
-  void start() override;
+  void start(dp::PortalHost& host) override;
   void stop() override;
   void loop() override;
   std::vector<std::string> statusLines() override;
@@ -112,7 +129,7 @@ class WifiPortal : public dp::PackUploader {
  private:
   WifiCalendar& cal_;
   bool running_ = false;
-  String ssid_, pass_, lastFile_;
+  String ssid_, pass_;
 };
 
 }  // namespace board

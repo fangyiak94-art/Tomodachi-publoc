@@ -9,6 +9,7 @@
 #include <ArduinoJson.h>
 
 #include "deskpet/alerts.h"
+#include "deskpet/room.h"
 
 namespace fs = std::filesystem;
 
@@ -82,12 +83,22 @@ bool DirStorage::write(const char* path, const std::string& data) {
 }
 
 bool DirStorage::listDirs(const char* path, std::vector<std::string>& out) {
-  std::string full = resolve(path, false);
-  std::error_code ec;
-  if (full.empty() || !fs::is_directory(full, ec)) return false;
-  for (const auto& e : fs::directory_iterator(full, ec))
-    if (e.is_directory()) out.push_back(e.path().filename().string());
-  return true;
+  std::string p = path ? path : "";
+  if (p.find("..") != std::string::npos) return false;
+  bool any = false;
+  // Union of the read-only tree and the write root (uploads land there).
+  for (const std::string& base : {root_, writeRoot_}) {
+    if (base.empty()) continue;
+    std::error_code ec;
+    if (!fs::is_directory(base + p, ec)) continue;
+    any = true;
+    for (const auto& e : fs::directory_iterator(base + p, ec)) {
+      std::string name = e.path().filename().string();
+      if (e.is_directory() && std::find(out.begin(), out.end(), name) == out.end())
+        out.push_back(name);
+    }
+  }
+  return any;
 }
 
 bool FileCalendar::poll(std::vector<CalendarEvent>& out) {
@@ -116,6 +127,11 @@ bool FileCalendar::poll(std::vector<CalendarEvent>& out) {
       std::string abs;
       serializeJson(doc, abs);
       parseCalendarJson(abs.data(), abs.size(), evs);
+      Weather w;
+      if (weather_ && parseWeatherJson(abs.data(), abs.size(), w) && weatherName(w) != lastWeather_) {
+        lastWeather_ = weatherName(w);
+        weather_->set(w);
+      }
     }
   }
   evs.insert(evs.end(), extra_.begin(), extra_.end());

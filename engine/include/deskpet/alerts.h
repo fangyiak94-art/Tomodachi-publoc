@@ -16,6 +16,8 @@ namespace dp {
 // Parses the Apps Script feed: {"events":[{"id","title","start","end"}]}
 // with start/end in unix seconds. Bounded: at most 16 events kept.
 bool parseCalendarJson(const char* data, size_t len, std::vector<CalendarEvent>& out);
+// The same feed may carry "weather": "clear|cloudy|rain|snow".
+bool parseWeatherJson(const char* data, size_t len, Weather& out);
 
 enum class AlertKind : uint8_t { None, Meeting, Notification };
 

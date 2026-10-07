@@ -12,6 +12,8 @@
 #include "board_pins.h"
 #include "deskpet/alerts.h"
 #include "deskpet/pack.h"
+#include "deskpet/portal.h"
+#include "deskpet/room.h"
 #include "lgfx_board.h"
 
 namespace board {
@@ -125,6 +127,11 @@ bool WifiCalendar::fetch(std::vector<dp::CalendarEvent>& out) {
   if (code == 200) {
     String body = http.getString();
     ok = dp::parseCalendarJson(body.c_str(), body.length(), out);
+    dp::Weather w;
+    if (dp::parseWeatherJson(body.c_str(), body.length(), w) && w != weather_) {
+      weather_ = w;
+      weatherNew_ = true;
+    }
   }
   http.end();
   Serial.printf("calendar: HTTP %d, %s\n", code, ok ? "parsed" : "failed");
@@ -178,6 +185,13 @@ bool WifiCalendar::poll(std::vector<dp::CalendarEvent>& out) {
   return false;
 }
 
+bool WifiCalendar::takeWeather(dp::Weather& out) {
+  if (!weatherNew_) return false;
+  weatherNew_ = false;
+  out = weather_;
+  return true;
+}
+
 // ---------------------------------------------------------- notifications
 
 bool NotificationQueue::poll(dp::Notification& out) {
@@ -204,41 +218,23 @@ void NotificationQueue::push(const dp::Notification& n) {
 namespace {
 
 WebServer* gServer = nullptr;
+dp::PortalHost* gHost = nullptr;
 File gUpload;
-String gUploadTmp, gUploadFinal, gUploadError, gLastFile;
+String gUploadTmp, gUploadFinal, gUploadError, gLastEvent;
 size_t gUploadBytes = 0;
-
-const char kPage[] PROGMEM = R"HTML(<!doctype html><html><head>
-<meta name="viewport" content="width=device-width,initial-scale=1"><title>Desk Pet</title>
-<style>body{font-family:sans-serif;max-width:28em;margin:2em auto;padding:0 1em}
-input,button{font-size:1em;margin:.3em 0;width:100%}#log{white-space:pre-wrap}</style></head>
-<body><h2>Upload a pack</h2>
-<p>Pick a pack id (a-z, 0-9, - _) and all its files: manifest.json plus any .dps images.</p>
-<input id="id" placeholder="pack id, e.g. blobby">
-<input id="files" type="file" multiple>
-<button onclick="go()">Upload</button><div id="log"></div>
-<script>
-async function go(){const id=document.getElementById('id').value.trim();
-const files=document.getElementById('files').files;const log=document.getElementById('log');
-log.textContent='';for(const f of files){const fd=new FormData();fd.append('file',f,f.name);
-const r=await fetch('/upload?pack='+encodeURIComponent(id),{method:'POST',body:fd});
-log.textContent+=f.name+': '+await r.text()+'\n';}
-log.textContent+='Done. Press BOOT on the pet, then pick the pack in Settings.';}
-</script></body></html>)HTML";
 
 void handleUploadData() {
   HTTPUpload& up = gServer->upload();
   if (up.status == UPLOAD_FILE_START) {
     gUploadError = "";
     gUploadBytes = 0;
-    std::string id = gServer->arg("pack").c_str();
-    std::string name = up.filename.c_str();
-    if (!dp::isSafeFileName(id) || !dp::isSafeFileName(name)) {
-      gUploadError = "bad pack id or file name";
+    std::string path, err;
+    if (!dp::portalUploadPath(gServer->arg("kind").c_str(), gServer->arg("id").c_str(),
+                              up.filename.c_str(), path, err)) {
+      gUploadError = err.c_str();
       return;
     }
-    String dir = String("/packs/") + id.c_str();
-    gUploadFinal = dir + "/" + name.c_str();
+    gUploadFinal = path.c_str();
     gUploadTmp = gUploadFinal + ".part";
     gUpload = LittleFS.open(gUploadTmp, "w", true);
     if (!gUpload) gUploadError = "cannot write";
@@ -257,7 +253,7 @@ void handleUploadData() {
     if (gUploadError.isEmpty()) {
       LittleFS.remove(gUploadFinal);
       LittleFS.rename(gUploadTmp, gUploadFinal);
-      gLastFile = gUploadFinal;
+      gLastEvent = "Got " + up.filename;
     } else {
       LittleFS.remove(gUploadTmp);
     }
@@ -268,10 +264,17 @@ void handleUploadData() {
   }
 }
 
+void sendResult(bool ok, const std::string& err) {
+  if (ok) gServer->send(200, "text/plain", "ok");
+  else gServer->send(400, "text/plain", err.c_str());
+}
+
 }  // namespace
 
-void WifiPortal::start() {
+void WifiPortal::start(dp::PortalHost& host) {
   if (running_) return;
+  gHost = &host;
+  gLastEvent = "";
   cal_.setPaused(true);
   WiFi.disconnect(true);
   uint8_t mac[6];
@@ -284,14 +287,25 @@ void WifiPortal::start() {
   WiFi.mode(WIFI_AP);
   WiFi.softAP(ssid_.c_str(), pass_.c_str());
   gServer = new WebServer(80);
-  gServer->on("/", HTTP_GET, []() { gServer->send_P(200, "text/html", kPage); });
+  gServer->on("/", HTTP_GET, []() { gServer->send(200, "text/html", dp::kPortalPage); });
+  gServer->on("/room", HTTP_GET,
+              []() { gServer->send(200, "application/json", gHost->roomJson().c_str()); });
+  gServer->on("/rooms", HTTP_GET, []() {
+    gServer->send(200, "application/json", dp::roomListJson(*gHost).c_str());
+  });
+  gServer->on("/room", HTTP_POST, []() {
+    std::string err;
+    std::string body = gServer->arg("plain").c_str();
+    bool ok = body.size() <= dp::kMaxRoomBytes && gHost->applyRoomJson(body, err);
+    if (ok) gLastEvent = "Room edited";
+    sendResult(ok, err.empty() ? "room too large" : err);
+  });
+  gServer->on("/room/select", HTTP_POST, []() {
+    sendResult(gHost->selectRoom(gServer->arg("id").c_str()), "cannot load room");
+  });
   gServer->on(
       "/upload", HTTP_POST,
-      []() {
-        if (gUploadError.isEmpty()) gServer->send(200, "text/plain", "ok");
-        else gServer->send(400, "text/plain", gUploadError);
-      },
-      handleUploadData);
+      []() { sendResult(gUploadError.isEmpty(), gUploadError.c_str()); }, handleUploadData);
   gServer->begin();
   running_ = true;
   Serial.printf("portal: %s / %s at %s\n", ssid_.c_str(), pass_.c_str(),
@@ -303,6 +317,7 @@ void WifiPortal::stop() {
   gServer->stop();
   delete gServer;
   gServer = nullptr;
+  gHost = nullptr;
   WiFi.softAPdisconnect(true);
   WiFi.mode(WIFI_OFF);
   cal_.setPaused(false);
@@ -317,10 +332,7 @@ std::vector<std::string> WifiPortal::statusLines() {
   if (!running_) return {"Starting..."};
   std::vector<std::string> lines = {std::string("WiFi ") + ssid_.c_str(),
                                     std::string("Pass ") + pass_.c_str(), "192.168.4.1"};
-  if (!gLastFile.isEmpty()) {
-    int slash = gLastFile.lastIndexOf('/');
-    lines.push_back(std::string("Got ") + gLastFile.substring(slash + 1).c_str());
-  }
+  if (!gLastEvent.isEmpty()) lines.push_back(gLastEvent.c_str());
   return lines;
 }
 

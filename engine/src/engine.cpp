@@ -25,6 +25,7 @@ const char* screenName(Screen s) {
 
 Engine::Engine(const Platform& platform) : p_(platform) {
   pack_.cfg = defaultPack();
+  room_.cfg = defaultRoom();
   hudRect_ = Rect(70, 8, 100, 50);
 }
 
@@ -34,18 +35,48 @@ void Engine::log(const std::string& line) {
 
 int64_t Engine::now() { return p_.clock ? p_.clock->epoch() : 0; }
 
-bool Engine::night() {
+Ambience Engine::computeAmbience() {
+  Ambience a;
   int64_t t = now();
-  if (t <= 0) return false;
-  int64_t local = t + int64_t(p_.clock->utcOffsetMinutes()) * 60;
-  int hour = static_cast<int>((local / 3600) % 24);
-  return hour < 6 || hour >= 19;
+  if (t > 0) {
+    int64_t local = t + int64_t(p_.clock->utcOffsetMinutes()) * 60;
+    int hour = static_cast<int>(((local / 3600) % 24 + 24) % 24);
+    a.phase = dayPhaseForHour(hour);
+  }
+  a.weather = weather_;
+  a.lightsOff = pet_.asleep();
+  a.tick = world_.view().tick;
+  return a;
+}
+
+// The room changes by itself: time of day, weather, lights off at bedtime.
+void Engine::updateAmbience() {
+  Ambience a = computeAmbience();
+  bool changed = a != amb_;
+  amb_ = a;
+  world_.setBadWeather(a.precipitation());
+  if (screen_ != Screen::Home) return;
+  if (changed) {
+    invalidateAll();
+  } else if (a.precipitation()) {
+    if (world_.view().scene == SceneId::Yard) invalidateAll();  // falling rain/snow
+    else invalidate(windowBounds(room_.cfg));
+  }
+}
+
+void Engine::setWeather(Weather w) {
+  if (w == weather_) return;
+  weather_ = w;
+  log(std::string("deskpet: weather ") + weatherName(w));
+  updateAmbience();
 }
 
 PetLook Engine::look() const {
   PetLook l;
   l.mood = pet_.mood();
   l.body = pack_.cfg.body;
+  l.light = sceneTint(amb_, world_.view().scene);
+  l.blanket = room_.cfg.colors.blanket;
   if (const EvolutionStage* st = pack_.cfg.stageFor(pet_.level()))
     if (st->hasBody) l.body = st->body;
   return l;
@@ -55,8 +86,9 @@ PetLook Engine::look() const {
 
 void Engine::begin() {
   loadSettings();
-  world_.reset(pack_.cfg, p_.seed);
+  world_.reset(room_.cfg, p_.seed);
   restorePet();
+  amb_ = computeAmbience();
   lastLevel_ = pet_.level();
   lastTickMs_ = lastSaveMs_ = p_.clock->millis();
   applyBrightness();
@@ -89,7 +121,6 @@ bool Engine::selectPack(const std::string& id) {
   pack_ = std::move(next);
   pack_.rebind();
   pet_.setTuning(pack_.cfg.tuning);
-  world_.setPack(pack_.cfg);
   log("deskpet: loaded pack '" + pack_.cfg.id + "' v" + pack_.cfg.version);
   if (started_) {
     saveSettings();
@@ -98,12 +129,86 @@ bool Engine::selectPack(const std::string& id) {
   return true;
 }
 
+std::vector<std::string> Engine::listRooms() {
+  std::vector<std::string> ids;
+  if (p_.storage) p_.storage->listDirs("/rooms", ids);
+  ids.push_back("cozy");  // built in, even without a folder
+  ids.erase(std::remove_if(ids.begin(), ids.end(),
+                           [](const std::string& s) { return !isSafeFileName(s); }),
+            ids.end());
+  std::sort(ids.begin(), ids.end());
+  ids.erase(std::unique(ids.begin(), ids.end()), ids.end());
+  return ids;
+}
+
+bool Engine::selectRoom(const std::string& id) {
+  if (!p_.storage) return false;
+  LoadedRoom next;
+  std::string err;
+  if (!loadRoom(*p_.storage, id, next, err)) {
+    roomError_ = err;
+    log("deskpet: room '" + id + "' rejected: " + err);
+    return false;
+  }
+  roomError_.clear();
+  room_ = std::move(next);
+  room_.rebind();
+  world_.setRoom(room_.cfg);
+  log("deskpet: room '" + room_.cfg.id + "'");
+  if (started_) {
+    saveSettings();
+    invalidateAll();
+  }
+  return true;
+}
+
+std::string Engine::roomJson() { return roomToJson(room_.cfg); }
+
+bool Engine::applyRoomJson(const std::string& json, std::string& err) {
+  RoomConfig cfg;
+  if (!parseRoom(json.data(), json.size(), cfg, err)) return false;
+  // Edits always land in the "custom" room so shipped themes stay intact.
+  if (cfg.backgroundsFrom.empty() && cfg.id != "custom") {
+    bool anyBg = !cfg.scenes[0].background.empty() || !cfg.scenes[1].background.empty();
+    if (anyBg) cfg.backgroundsFrom = cfg.id;
+  }
+  cfg.id = "custom";
+  if (!p_.storage || !p_.storage->write("/rooms/custom/room.json", roomToJson(cfg))) {
+    err = "cannot save room";
+    return false;
+  }
+  if (!selectRoom("custom")) {
+    err = roomError_;
+    return false;
+  }
+  // Show the result live while the editor stays open.
+  if (screen_ != Screen::Home) goTo(Screen::Home);
+  return true;
+}
+
+void Engine::startPortal() {
+  if (portalOpen_ || !p_.uploader) return;
+  p_.uploader->start(*this);
+  portalOpen_ = true;
+}
+
+void Engine::stopPortal() {
+  if (!portalOpen_) return;
+  p_.uploader->stop();
+  portalOpen_ = false;
+  // New files may have arrived: reload what is in use.
+  selectPack(pack_.cfg.id);
+  selectRoom(room_.cfg.id);
+  invalidateAll();
+}
+
 void Engine::loadSettings() {
-  std::string json, packId = "blobby";
+  std::string json, packId = "blobby", roomId = "cozy";
   if (p_.storage && p_.storage->read("/settings.json", json, 2048)) {
     JsonDocument doc;
     if (!deserializeJson(doc, json)) {
       packId = doc["pack"] | "blobby";
+      roomId = doc["room"] | "cozy";
       brightness_ = std::min(255, std::max(20, doc["brightness"] | 200));
       dnd_ = doc["dnd"] | false;
     }
@@ -120,12 +225,14 @@ void Engine::loadSettings() {
       log("deskpet: using built-in pack");
     }
   }
+  if (!selectRoom(roomId)) selectRoom("cozy");
 }
 
 void Engine::saveSettings() {
   if (!p_.storage) return;
   JsonDocument doc;
   doc["pack"] = pack_.cfg.id;
+  doc["room"] = room_.cfg.id;
   doc["brightness"] = brightness_;
   doc["dnd"] = dnd_;
   std::string out;
@@ -178,7 +285,7 @@ void Engine::loop() {
   }
 
   tune_.update(p_.buzzer, ms);
-  if (screen_ == Screen::Upload && p_.uploader) p_.uploader->loop();
+  if (portalOpen_) p_.uploader->loop();
   if (ms - lastSaveMs_ >= kSaveEveryMs) save();
   render();
 }
@@ -191,6 +298,10 @@ void Engine::pollSources(uint32_t ms) {
       alerts_.setEvents(evs);
       log("deskpet: calendar has " + std::to_string(evs.size()) + " events");
     }
+  }
+  if (p_.weather) {
+    Weather w;
+    if (p_.weather->poll(w)) setWeather(w);
   }
   if (p_.notifications) {
     Notification n;
@@ -236,11 +347,12 @@ void Engine::tick() {
     save();
   }
 
+  updateAmbience();
   if (world_.sceneChangedSinceLastCheck()) {
     if (screen_ == Screen::Home) invalidateAll();
   } else if (screen_ == Screen::Home) {
     invalidate(Rect::unite(before, petBounds(pack_, world_.view())));
-    if (bowlBefore != world_.view().bowlFull) invalidate(bowlBounds(pack_.cfg));
+    if (bowlBefore != world_.view().bowlFull) invalidate(bowlBounds(room_.cfg));
   }
 
   // HUD and info screens only redraw when what they show changed.
@@ -259,6 +371,7 @@ uint32_t Engine::contentHash() {
   mix(static_cast<uint32_t>(t / 60));
   mix(dnd_);
   mix(static_cast<uint32_t>(brightness_));
+  mix(portalOpen_);
   if (screen_ == Screen::Home) {
     const PetStats& s = pet_.stats();
     mix(pet_.isLow(s.food) || pet_.isLow(s.fun) || pet_.isLow(s.energy));
@@ -271,11 +384,11 @@ uint32_t Engine::contentHash() {
     mix(static_cast<uint32_t>(pet_.mood()));
   } else if (screen_ == Screen::Agenda) {
     for (const CalendarEvent& e : alerts_.events()) mix(static_cast<uint32_t>(e.start));
-  } else if (screen_ == Screen::Upload && p_.uploader) {
+  } else if (screen_ == Screen::Upload && portalOpen_) {
     for (const std::string& l : p_.uploader->statusLines())
       for (char ch : l) mix(static_cast<uint8_t>(ch));
   }
-  if (p_.connectivity && screen_ == Screen::Settings) {
+  if (p_.connectivity && screen_ == Screen::Upload) {
     ConnectivityStatus cs = p_.connectivity();
     for (const char* q = cs.wifi; *q; ++q) mix(static_cast<uint8_t>(*q));
     for (const char* q = cs.phone; *q; ++q) mix(static_cast<uint8_t>(*q));
@@ -286,9 +399,8 @@ uint32_t Engine::contentHash() {
 // ----------------------------------------------------------------- input
 
 void Engine::goTo(Screen s) {
-  if (screen_ == Screen::Upload && s != Screen::Upload && p_.uploader) p_.uploader->stop();
   screen_ = s;
-  if (s == Screen::Upload && p_.uploader) p_.uploader->start();
+  if (s == Screen::Upload) startPortal();
   shownHash_ = contentHash();
   invalidateAll();
 }
@@ -331,9 +443,8 @@ void Engine::handleGesture(const InputEvent& e) {
     case Screen::Settings: onSettings(e); break;
     case Screen::Upload:
       if (e.gesture == Gesture::Back) {
+        stopPortal();
         goTo(Screen::Settings);
-        // New packs may have arrived; reload the current one from storage.
-        selectPack(pack_.cfg.id);
       }
       break;
   }
@@ -372,6 +483,9 @@ void Engine::onHome(const InputEvent& e) {
     case Gesture::SwipeRight: goTo(Screen::Agenda); break;
     case Gesture::SwipeUp: goTo(Screen::Actions); break;
     case Gesture::SwipeDown: goTo(Screen::Settings); break;
+    case Gesture::Back:
+      if (portalOpen_) stopPortal();  // leave live room editing
+      break;
     default: break;
   }
 }
@@ -425,6 +539,12 @@ void Engine::onSettings(const InputEvent& e) {
       for (size_t i = 0; i < ids.size(); ++i)
         if (selectPack(ids[(start + i) % ids.size()])) break;
     }
+  } else if (e.y >= kRowRoom && e.y < kRowRoom + kRowH) {
+    std::vector<std::string> ids = listRooms();
+    auto it = std::find(ids.begin(), ids.end(), room_.cfg.id);
+    size_t start = it == ids.end() ? 0 : static_cast<size_t>(it - ids.begin()) + 1;
+    for (size_t i = 0; i < ids.size(); ++i)
+      if (selectRoom(ids[(start + i) % ids.size()])) break;
   } else if (e.y >= kRowUpload) {
     goTo(Screen::Upload);
     return;

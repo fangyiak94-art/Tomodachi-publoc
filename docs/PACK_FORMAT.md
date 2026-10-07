@@ -1,13 +1,13 @@
-# Pack format (format 1)
+# Pet pack format (format 1)
 
-A pack is a folder `/packs/<id>/` on LittleFS (`fs/packs/<id>/` in this repo).
-It holds data only. No scripts.
+A pet pack is a folder `/packs/<id>/` on LittleFS (`fs/packs/<id>/` in this
+repo). It holds data only. No scripts. The house and yard are **room
+themes**, separate from the pet; see [ROOMS.md](ROOMS.md).
 
 ```
 packs/sprout/
   manifest.json     required, ≤ 16 KB
   sprout.dps        optional sprite sheet, ≤ 64 KB
-  house.dps         optional scene backgrounds, ≤ 40 KB each
 ```
 
 ## manifest.json
@@ -42,18 +42,9 @@ ignored.
   "rules": [ { "stat": "food", "below": 15, "mood": "sad" } ],        // checked before the mood table, max 16
   "evolution": [ { "level": 1, "name": "Blobby" },
                  { "level": 5, "name": "Big Blobby", "body": "#5CC48C" } ],   // max 8
-  "scenes": {
-    "house": { "background": "house.dps", "groundY": 182, "minX": 56, "maxX": 184,
-               "spots": { "bed": [62, 182], "bowl": [150, 182], "door": [184, 182] } },
-    "yard":  { "spots": { "door": [176, 182] } }
-  },
   "sounds": { "meeting": "meeting:d=8,o=6,b=180:c,e,g", "notify": "...", "happy": "..." }  // RTTTL
 }
 ```
-
-Required spots: `house.bed`, `house.bowl`, and `door` in both scenes. Spots
-are where the pet stands (bottom centre). The bowl is drawn 34 px to the
-left of its spot.
 
 Mood names: `hungry`, `sad`, `happy`, `neutral` (`sleepy` is reserved for
 sleep).
@@ -73,8 +64,8 @@ Little endian:
 | 44 | … | frames × ceil(w·h/2) bytes, 2 pixels per byte, high nibble first |
 
 For sprites, palette index 0 is transparent. The file size must match the
-header exactly. A 240×240 background is 28,844 bytes. A 120×120 background
-is drawn at 2× (7,244 bytes).
+header exactly. Room backgrounds use the same format: 240×240 is 28,844
+bytes, and 120×120 is drawn at 2× (7,244 bytes).
 
 Convert art with:
 
@@ -111,5 +102,4 @@ of these hold:
 - file names are not `[a-z0-9._-]`, start with `.`, or contain `..`
 - an image header does not match its size, or exceeds its limits
 - an animation references a frame the sheet doesn't have
-- required spots are missing, or there are too many spots, rules, stages,
-  animations or sounds
+- there are too many rules, stages, animations or sounds
