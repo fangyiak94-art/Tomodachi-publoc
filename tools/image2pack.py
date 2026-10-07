@@ -48,9 +48,9 @@ def remove_flat_background(im, tolerance=24):
     return im
 
 
-def fit(im, size):
+def fit(im, size, box=None):
     im = remove_flat_background(im)
-    box = im.getbbox()
+    box = box or im.getbbox()
     if box:
         im = im.crop(box)
     w, h = im.size
@@ -121,7 +121,14 @@ def main():
         sys.exit("size * scale must be <= 160 px so the pet fits the scenes")
 
     src = Image.open(a.image)
-    idle = [fit(f.copy(), a.size) for f in ImageSequence.Iterator(src)][:8]
+    raw = [f.convert("RGBA") for f in ImageSequence.Iterator(src)]
+    if len(raw) > 8:  # sample the whole loop evenly, max 8 frames
+        raw = [raw[i * len(raw) // 8] for i in range(8)]
+    # One crop box for all frames so the animation doesn't jitter.
+    boxes = [b for b in (remove_flat_background(f).getbbox() for f in raw) if b]
+    box = (min(b[0] for b in boxes), min(b[1] for b in boxes),
+           max(b[2] for b in boxes), max(b[3] for b in boxes)) if boxes else None
+    idle = [fit(f, a.size, box) for f in raw]
     if a.faces_left:
         idle = [f.transpose(Image.FLIP_LEFT_RIGHT) for f in idle]
     base = idle[0]
