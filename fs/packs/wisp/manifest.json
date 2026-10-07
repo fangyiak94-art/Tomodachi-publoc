@@ -1,0 +1,43 @@
+{
+  "format": 1,
+  "id": "wisp",
+  "name": "Wisp",
+  "version": "1.0.0",
+  "creature": {
+    "sprites": "sprites.dps",
+    "scale": 2,
+    "body": "#9060D0",
+    "outline": "#9060D0",
+    "animations": {
+      "idle": [
+        0,
+        1
+      ],
+      "walk": [
+        2,
+        3
+      ],
+      "sleep": [
+        4
+      ],
+      "eat": [
+        5,
+        0
+      ],
+      "play": [
+        6,
+        0
+      ],
+      "idle_happy": [
+        6,
+        0
+      ],
+      "idle_sad": [
+        7
+      ],
+      "idle_hungry": [
+        7
+      ]
+    }
+  }
+}

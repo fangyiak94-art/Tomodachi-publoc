@@ -79,8 +79,9 @@ docs/              architecture & migration, pack format, hardware bring-up
 - **Packs**: `manifest.json` covers stats, decay, mood thresholds, rules,
   evolution, scenes and spots, and RTTTL sounds. Optional 4-bit sprite sheets
   and scene backgrounds. Every field is validated and bounded; a bad pack
-  falls back to the built-in default. Two packs ship: procedural **Blobby**
-  and sprite-based **Sprout**.
+  falls back to the built-in default. Three packs ship: procedural **Blobby**,
+  and sprite-based **Sprout** and **Wisp**. `tools/image2pack.py` turns any
+  single picture into a pack (see docs/PACK_FORMAT.md).
 - **Rendering**: dirty rectangles drawn in 16-row strips (7.7 KB buffer).
   There is no 115 KB framebuffer. An idle tick pushes about 10k of 57.6k
   pixels.

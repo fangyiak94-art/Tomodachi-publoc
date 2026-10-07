@@ -3,6 +3,7 @@
 // writes screenshots of every screen. Exit code != 0 if the gate fails.
 //
 //   deskpet_headless [--fs fs] [--out shots] [--seed 7]
+//   deskpet_headless --preview <pack-id>   screenshots of one pack, no gate
 #include <cstdio>
 #include <cstring>
 #include <filesystem>
@@ -82,10 +83,12 @@ void check(bool ok, const char* what) {
 int main(int argc, char** argv) {
   std::string fsRoot = "fs", out = "shots";
   uint32_t seed = 7;
+  std::string preview;
   for (int i = 1; i + 1 < argc; i += 2) {
     if (!std::strcmp(argv[i], "--fs")) fsRoot = argv[i + 1];
     else if (!std::strcmp(argv[i], "--out")) out = argv[i + 1];
     else if (!std::strcmp(argv[i], "--seed")) seed = static_cast<uint32_t>(std::atoi(argv[i + 1]));
+    else if (!std::strcmp(argv[i], "--preview")) preview = argv[i + 1];
   }
   std::filesystem::create_directories(out);
   const std::string state = out + "/state";
@@ -101,6 +104,24 @@ int main(int argc, char** argv) {
   };
 
   e.begin();
+  if (!preview.empty()) {
+    if (!e.selectPack(preview)) {
+      std::printf("pack '%s' rejected: %s\n", preview.c_str(), e.lastPackError().c_str());
+      return 1;
+    }
+    h.ticks(30);
+    shot("preview_house");
+    h.gesture(Gesture::SwipeUp);
+    h.gesture(Gesture::Tap, 164, 162);  // WALK
+    h.until([&] { return e.world().view().scene == SceneId::Yard; }, 80);
+    h.ticks(10);
+    shot("preview_yard");
+    h.gesture(Gesture::DoubleTap);
+    h.until([&] { return e.pet().asleep(); }, 160);
+    h.ticks(3);
+    shot("preview_sleep");
+    return 0;
+  }
   check(e.pack().cfg.id == "blobby", "loads the blobby pack from storage");
   h.ticks(30);
   shot("01_home_house");

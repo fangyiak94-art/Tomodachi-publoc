@@ -83,6 +83,22 @@ python3 tools/png2dps.py sheet.png out.dps --frame-width 24   # sprite strip
 python3 tools/png2dps.py house.png house.dps --background     # opaque scene
 ```
 
+### From a single picture
+
+```bash
+python3 tools/image2pack.py my_creature.png --name "Ghosty"   # -> fs/packs/private-ghosty/
+./build/deskpet_headless --preview private-ghosty              # screenshots in shots/
+```
+
+`image2pack.py` crops the image, and if there is no transparency it removes
+a flat background colour. It fits the image into a 48×48 frame and makes
+walk, sleep, eat and happy frames by bobbing, squashing and dimming it. An
+animated GIF's frames become the idle loop. Packs whose id starts with
+`private-` are gitignored. Use that for art you don't own (fan art,
+franchise characters) so it stays on your own machine and device and is
+never committed or shared. The shipped **Wisp** pack was made from
+`tools/art/wisp.png` with this tool.
+
 `tools/make_sprout_pack.py` is a complete example. It draws frames with
 Pillow, converts them, and writes the manifest.
 

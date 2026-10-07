@@ -8,3 +8,6 @@ fs/settings.json
 fs/save.json
 *.ppm
 __pycache__/
+
+# Packs made from art you do not own stay local (tools/image2pack.py default).
+fs/packs/private-*/
