@@ -6,8 +6,6 @@
   "creature": {
     "sprites": "sprites.dps",
     "scale": 2,
-    "body": "#9060D0",
-    "outline": "#9060D0",
     "animations": {
       "idle": [
         0,
@@ -38,6 +36,14 @@
       "idle_hungry": [
         5
       ]
+    },
+    "body": "#9060D0",
+    "outline": "#9060D0"
+  },
+  "evolution": [
+    {
+      "level": 1,
+      "name": "Wisp"
     }
-  }
+  ]
 }

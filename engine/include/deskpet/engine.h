@@ -20,6 +20,11 @@ namespace dp {
 enum class Screen : uint8_t { Home, Stats, Agenda, Actions, Settings, Upload };
 const char* screenName(Screen s);
 
+// The evolution scene: "What? X is evolving!" -> silhouettes flashing
+// between old and new form -> white flash -> "X evolved into Y!".
+// BOOT during the first part stops it (it tries again at the next level).
+enum class EvoPhase : uint8_t { None, Intro, Morph, Flash, Done, Cancelled };
+
 struct RenderStats {
   uint32_t frames = 0;         // render passes that pushed anything
   uint32_t pixelsLastFrame = 0;
@@ -48,6 +53,12 @@ class Engine : public PortalHost {
   std::vector<std::string> listRooms();
   void setWeather(Weather w);  // also fed by Platform::weather
   void openPortal() { startPortal(); invalidateAll(); }  // room editor without the Upload screen
+
+  // Rare Candy: +1 level now (and maybe an evolution). Used from Stats.
+  bool useRareCandy();
+  void giveCandy(int n, const char* why);
+  EvoPhase evoPhase() const { return evo_.phase; }
+  const std::string& toast() const { return toast_; }
 
   // PortalHost (room editor and theme switching from the phone/PC).
   std::string roomJson() override;
@@ -112,6 +123,18 @@ class Engine : public PortalHost {
   void onActions(const InputEvent& e);
   void onSettings(const InputEvent& e);
   void onAlert(const InputEvent& e);
+  void onStats(const InputEvent& e);
+
+  // Levels, candy and evolution.
+  void onLevelUp();
+  void checkEvolution();
+  void stepEvolution();
+  void onEvolutionGesture(const InputEvent& e);
+  void drawEvolution(Canvas& c);
+  void drawToast(Canvas& c);
+  void showToast(const std::string& text);
+  bool loadPackStage(const std::string& id, int stage, LoadedPack& out);
+  int64_t localDay();
 
   Platform p_;
   Pet pet_;
@@ -124,6 +147,16 @@ class Engine : public PortalHost {
   LoadedRoom room_;
   std::string roomError_;
   Weather weather_ = Weather::Unknown;
+  struct Evolution {
+    EvoPhase phase = EvoPhase::None;
+    int to = 0;
+    uint16_t ticks = 0;
+    std::string fromName, toName;
+    LoadedPack next;  // the new form's sprite sheet, loaded for the scene
+  } evo_;
+  uint32_t refusedLevel_ = 0;  // evolution stopped at this level
+  std::string toast_;
+  uint16_t toastTicks_ = 0;
   Ambience amb_;
   bool portalOpen_ = false;
 

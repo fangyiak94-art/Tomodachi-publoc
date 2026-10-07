@@ -2,6 +2,7 @@
 
 #include <ArduinoJson.h>
 
+#include <algorithm>
 #include <cstring>
 
 namespace dp {
@@ -77,7 +78,15 @@ void Pet::walked() { s_.xp += tuning_.walkXp; }
 void Pet::meetingAck() {
   s_.fun = clamp(s_.fun + tuning_.meetingAckFun);
   s_.xp += tuning_.meetingAckXp;
+  ++s_.meetingAcks;
 }
+bool Pet::useRareCandy() {
+  if (s_.candies == 0) return false;
+  --s_.candies;
+  s_.xp = level() * 100;  // level() + 1 starts at level() * 100 XP
+  return true;
+}
+
 void Pet::meetingIgnored() { s_.fun = clamp(s_.fun - tuning_.meetingIgnoredFun); }
 
 std::string Pet::toJson(int64_t savedAt) const {
@@ -88,6 +97,10 @@ std::string Pet::toJson(int64_t savedAt) const {
   doc["energy"] = s_.energy;
   doc["xp"] = s_.xp;
   doc["asleep"] = s_.asleep;
+  doc["candies"] = s_.candies;
+  doc["stage"] = s_.stage;
+  doc["meetingAcks"] = s_.meetingAcks;
+  doc["treatDay"] = s_.treatDay;
   doc["savedAt"] = savedAt;
   std::string out;
   serializeJson(doc, out);
@@ -104,6 +117,10 @@ bool Pet::fromJson(const std::string& json, int64_t& savedAt) {
   s.energy = clamp(doc["energy"] | s.energy);
   s.xp = doc["xp"] | 0u;
   s.asleep = doc["asleep"] | false;
+  s.candies = static_cast<uint16_t>(std::min(999u, doc["candies"] | 0u));
+  s.stage = static_cast<uint8_t>(std::min(7u, doc["stage"] | 0u));
+  s.meetingAcks = static_cast<uint16_t>(doc["meetingAcks"] | 0u);
+  s.treatDay = doc["treatDay"] | -1;
   savedAt = doc["savedAt"] | int64_t(0);
   s_ = s;
   return true;

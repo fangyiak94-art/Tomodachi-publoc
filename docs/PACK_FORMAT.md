@@ -41,13 +41,37 @@ ignored.
                "outingChancePct": 2, "autoSleepBelow": 10 },
   "rules": [ { "stat": "food", "below": 15, "mood": "sad" } ],        // checked before the mood table, max 16
   "evolution": [ { "level": 1, "name": "Blobby" },
-                 { "level": 5, "name": "Big Blobby", "body": "#5CC48C" } ],   // max 8
+                 { "level": 5, "name": "Big Blobby", "body": "#5CC48C" },     // procedural: new colour
+                 { "level": 10, "name": "Gengar", "sprites": "stage2.dps",    // sprite pets: new sheet
+                   "animations": { "idle": [0, 1] } } ],                     // optional, else the pack's; max 8
   "sounds": { "meeting": "meeting:d=8,o=6,b=180:c,e,g", "notify": "...", "happy": "..." }  // RTTTL
 }
 ```
 
 Mood names: `hungry`, `sad`, `happy`, `neutral` (`sleepy` is reserved for
 sleep).
+
+## Levels, Rare Candy and evolution
+
+Level = XP ÷ 100 + 1. XP comes from meetings, play and walks. A **Rare
+Candy** jumps straight to the next level. Candies are earned with:
+- a **daily treat**: the first Feed of each day (needs the clock)
+- a **meeting streak**: every 2nd meeting you acknowledge
+- `c` in the simulator, or `candy` on the board's serial console
+
+Use them on the Stats screen (pink **xN USE** button).
+
+When the level reaches the next stage's `level`, the evolution scene plays:
+"What? X is evolving!", then the old and new forms flash as white
+silhouettes, faster and faster, then a white flash and "X evolved into Y!".
+The pet's sprite sheet and animations switch to that stage's `sprites`
+and `animations`. Press **BOOT** during the first part to stop it, like
+pressing B. It tries again at the next level up. The form the pet reached is
+saved and survives reboots. Only the current stage's sheet is in RAM
+(about 30 KB). Both sheets are loaded briefly during the scene.
+
+Make a family from pictures with
+`tools/image2pack.py first.gif --name A --evolve 5 B second.gif --evolve 10 C third.gif`.
 
 ## DPS1 image format (.dps)
 

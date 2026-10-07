@@ -4,6 +4,7 @@
 //
 //   deskpet_headless [--fs fs] [--out shots] [--seed 7]
 //   deskpet_headless --preview <pack-id> [--packs DIR] [--room id] [--weather rain] [--hour 21]
+//                    [--candy N]   feed N Rare Candies and record evolutions as evo_NNN shots
 //                                          screenshots of a pack/room (plus 16
 //                                          consecutive anim_NN frames), no gate
 #include <cstdio>
@@ -91,6 +92,7 @@ int main(int argc, char** argv) {
   std::string preview, room, weatherArg;
   std::vector<std::string> packDirs;
   int hour = -1;
+  int candy = 0;
   for (int i = 1; i + 1 < argc; i += 2) {
     if (!std::strcmp(argv[i], "--fs")) fsRoot = argv[i + 1];
     else if (!std::strcmp(argv[i], "--out")) out = argv[i + 1];
@@ -100,6 +102,7 @@ int main(int argc, char** argv) {
     else if (!std::strcmp(argv[i], "--packs")) packDirs.push_back(argv[i + 1]);
     else if (!std::strcmp(argv[i], "--weather")) weatherArg = argv[i + 1];
     else if (!std::strcmp(argv[i], "--hour")) hour = std::atoi(argv[i + 1]);
+    else if (!std::strcmp(argv[i], "--candy")) candy = std::atoi(argv[i + 1]);
   }
   std::filesystem::create_directories(out);
   const std::string state = out + "/state";
@@ -142,6 +145,26 @@ int main(int argc, char** argv) {
       char name[32];
       std::snprintf(name, sizeof(name), "anim_%02d", i);
       shot(name);
+    }
+    if (candy > 0) {
+      // Use candies from the Stats screen one by one; film every evolution.
+      int evoShot = 0;
+      e.giveCandy(candy, "preview");
+      for (int i = 0; i < candy; ++i) {
+        h.gesture(Gesture::SwipeLeft);
+        h.gesture(Gesture::Tap, 120, 206);  // candy button
+        h.ticks(1);
+        while (e.evoPhase() != EvoPhase::None) {
+          char name[32];
+          std::snprintf(name, sizeof(name), "evo_%03d", evoShot++);
+          shot(name);
+          h.ticks(1);
+        }
+      }
+      std::printf("level %u, form '%s'\n", static_cast<unsigned>(e.pet().level()),
+                  e.pack().cfg.stage(e.pack().stage) ? e.pack().cfg.stage(e.pack().stage)->name.c_str() : "?");
+      h.ticks(4);
+      shot("preview_after_candy");
     }
     h.gesture(Gesture::SwipeUp);
     h.gesture(Gesture::Tap, 164, 162);  // WALK
@@ -237,6 +260,19 @@ int main(int argc, char** argv) {
         "no full-screen redraws while idling in the house");
   check(perTick < static_cast<uint64_t>(kScreenW * kScreenH / 3),
         "average redraw well under a full frame");
+
+  // Rare Candy levels the pet up; Blobby evolves at level 5.
+  e.giveCandy(4, "gate");
+  for (int i = 0; i < 4 && e.evoPhase() == EvoPhase::None; ++i) {
+    h.gesture(Gesture::SwipeLeft);
+    h.gesture(Gesture::Tap, 120, 206);
+  }
+  check(e.pet().level() >= 5, "rare candies level the pet up");
+  check(e.evoPhase() != EvoPhase::None, "reaching level 5 starts the evolution scene");
+  h.ticks(12);
+  shot("12_evolving");
+  bool evolved = h.until([&] { return e.evoPhase() == EvoPhase::None; }, 120);
+  check(evolved && e.pack().stage == 1 && e.pet().stats().stage == 1, "evolves into the next form");
 
   // Swap packs at runtime (Settings > Pack), no rebuild.
   h.gesture(Gesture::SwipeDown);

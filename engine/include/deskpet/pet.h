@@ -47,6 +47,10 @@ struct PetStats {
   float food = 80, fun = 70, energy = 90;
   uint32_t xp = 0;
   bool asleep = false;
+  uint16_t candies = 0;   // Rare Candies in the bag
+  uint8_t stage = 0;      // evolution stage (index into the pack's stages)
+  uint16_t meetingAcks = 0;
+  int32_t treatDay = -1;  // local day number of the last daily candy
 };
 
 class Pet {
@@ -73,6 +77,8 @@ class Pet {
   void played();
   void walked();
   void meetingAck();
+  // Rare Candy: straight to the start of the next level. False if none left.
+  bool useRareCandy();
   void meetingIgnored();
   void sleep() { s_.asleep = true; }
   void wake() { s_.asleep = false; }

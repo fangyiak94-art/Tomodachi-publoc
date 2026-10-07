@@ -150,6 +150,12 @@ void World::tapped(Pet& pet) {
   v_.heartAge = 0;
 }
 
+void World::celebrate() {
+  jumpTicks_ = kJumpLen;
+  v_.heart = true;
+  v_.heartAge = 0;
+}
+
 void World::notified() {
   if (v_.activity == Activity::Sleeping) return;
   jumpTicks_ = kJumpLen;

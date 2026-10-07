@@ -34,13 +34,16 @@ drag to swipe). Keyboard shortcuts:
 | `l` | long press | `1` | zoom (1 = real panel size) |
 | esc / backspace | BOOT (back) | `p` | screenshot |
 | `w` | weather: clear/cloudy/rain/snow | `h` | clock +3 h (day/night) |
+| `c` | get a Rare Candy (use it on Stats) | | |
 
 Room editor: open Settings › UPLOAD (or start with `--edit`), then go to
 http://localhost:8080 and drag the sliders. The pet's room updates live.
 
 Pokémon pets: `python3 pokemon_tomo_packs/make_packs.py` builds Gastly,
-Haunter, Gengar and Shiny Gengar on your machine. Run one with
-`./build/deskpet_sim --packs pokemon_tomo_packs/packs --pack gengar --room haunted`.
+Haunter, Gengar and Shiny Gengar on your machine. It also builds
+**gastly-line**, which evolves into Haunter at Lv 5 and Gengar at Lv 10 (feed
+it Rare Candy). Run one with
+`./build/deskpet_sim --packs pokemon_tomo_packs/packs --pack gastly-line --room haunted`.
 The builder and list are in git, but the sprites stay local. See
 [pokemon_tomo_packs/README.md](pokemon_tomo_packs/README.md).
 
@@ -77,6 +80,10 @@ docs/              architecture & migration, pack format, hardware bring-up
 
 ## What works
 
+- **Levels and evolution**: Rare Candy (earned from a daily treat and
+  meeting streaks) gives +1 level. At a stage's level, a Pokémon-style
+  evolution scene plays and the pet switches to its next form and sprites.
+  BOOT stops it.
 - **Pet**: food/fun/energy/XP with decay rates and actions from the spec.
   Mood table (first match wins) and the level formula are also from the spec.
   Stats under 30 show amber.

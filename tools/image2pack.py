@@ -5,6 +5,10 @@ into a sprite pack the engine can load.
     python3 tools/image2pack.py my_creature.png --name "Ghosty"
     python3 tools/image2pack.py art.gif --name Ghosty --id private-ghosty --size 48 --scale 2
 
+An evolution family in one pack (each stage has its own picture):
+
+    python3 tools/image2pack.py egg.png --name Eggy --evolve 5 Chick chick.gif --evolve 10 Hen hen.gif
+
 The idle, walk, sleep, eat and happy frames are made from the one image
 (bob, squash, hop, dim). An animated GIF's own frames become the idle loop.
 
@@ -103,24 +107,9 @@ def dominant_hex(im):
     return "#%02X%02X%02X" % (r, g, b)
 
 
-def main():
-    ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
-    ap.add_argument("image")
-    ap.add_argument("--name", required=True, help="display name, max 24 chars")
-    ap.add_argument("--id", help="pack id (default: private-<name>)")
-    ap.add_argument("--size", type=int, default=48, help="frame size in pixels (default 48)")
-    ap.add_argument("--scale", type=int, default=2, help="on-screen scale 1-6 (default 2)")
-    ap.add_argument("--faces-left", action="store_true", help="the art looks left (engine expects right)")
-    ap.add_argument("--out", default=os.path.join(ROOT, "fs", "packs"))
-    a = ap.parse_args()
-
-    pid = a.id or "private-" + re.sub(r"[^a-z0-9]+", "-", a.name.lower()).strip("-")
-    if not re.fullmatch(r"[a-z0-9][a-z0-9_.-]{0,23}", pid) or ".." in pid:
-        sys.exit(f"bad pack id {pid!r}: use 1-24 chars of a-z 0-9 - _ .")
-    if a.size * a.scale > 160:
-        sys.exit("size * scale must be <= 160 px so the pet fits the scenes")
-
-    src = Image.open(a.image)
+def build_sheet(path, size, faces_left):
+    """One image (or animated GIF) -> (DPS1 bytes, frame count, animations)."""
+    src = Image.open(path)
     raw = [f.convert("RGBA") for f in ImageSequence.Iterator(src)]
     if len(raw) > 8:  # sample the whole loop evenly, max 8 frames
         raw = [raw[i * len(raw) // 8] for i in range(8)]
@@ -128,8 +117,8 @@ def main():
     boxes = [b for b in (remove_flat_background(f).getbbox() for f in raw) if b]
     box = (min(b[0] for b in boxes), min(b[1] for b in boxes),
            max(b[2] for b in boxes), max(b[3] for b in boxes)) if boxes else None
-    idle = [fit(f, a.size, box) for f in raw]
-    if a.faces_left:
+    idle = [fit(f, size, box) for f in raw]
+    if faces_left:
         idle = [f.transpose(Image.FLIP_LEFT_RIGHT) for f in idle]
     base = idle[0]
 
@@ -137,6 +126,7 @@ def main():
     def add(im):
         frames.append(im)
         return len(frames) - 1
+
     animations = {}
     if len(idle) == 1:
         # One still picture: make movement by bobbing, squashing and dimming it.
@@ -157,33 +147,68 @@ def main():
     animations["idle_sad"] = sad
     animations["idle_hungry"] = sad
 
-    sheet = Image.new("RGBA", (a.size * len(frames), a.size), (0, 0, 0, 0))
+    sheet = Image.new("RGBA", (size * len(frames), size), (0, 0, 0, 0))
     for i, f in enumerate(frames):
-        sheet.paste(f, (i * a.size, 0))
-    data, _ = convert(sheet, a.size, background=False)
+        sheet.paste(f, (i * size, 0))
+    data, _ = convert(sheet, size, background=False)
+    return data, len(frames), animations, dominant_hex(base)
+
+
+def main():
+    ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
+    ap.add_argument("image")
+    ap.add_argument("--name", required=True, help="display name, max 24 chars")
+    ap.add_argument("--id", help="pack id (default: private-<name>)")
+    ap.add_argument("--size", type=int, default=48, help="frame size in pixels (default 48)")
+    ap.add_argument("--scale", type=int, default=2, help="on-screen scale 1-6 (default 2)")
+    ap.add_argument("--faces-left", action="store_true", help="the art looks left (engine expects right)")
+    ap.add_argument("--evolve", nargs=3, action="append", default=[], metavar=("LEVEL", "NAME", "IMAGE"),
+                    help="evolve into NAME (picture IMAGE) at LEVEL; repeat for more stages")
+    ap.add_argument("--out", default=os.path.join(ROOT, "fs", "packs"))
+    a = ap.parse_args()
+
+    pid = a.id or "private-" + re.sub(r"[^a-z0-9]+", "-", a.name.lower()).strip("-")
+    if not re.fullmatch(r"[a-z0-9][a-z0-9_.-]{0,23}", pid) or ".." in pid:
+        sys.exit(f"bad pack id {pid!r}: use 1-24 chars of a-z 0-9 - _ .")
+    if a.size * a.scale > 160:
+        sys.exit("size * scale must be <= 160 px so the pet fits the scenes")
+    stages = [(1, a.name, a.image)]
+    for level, name, image in a.evolve:
+        if not level.isdigit() or int(level) < 2:
+            sys.exit(f"--evolve level must be a number >= 2, got {level!r}")
+        stages.append((int(level), name, image))
+    stages.sort(key=lambda s: s[0])
+    if len(stages) > 8:
+        sys.exit("at most 8 stages")
 
     out = os.path.join(a.out, pid)
     os.makedirs(out, exist_ok=True)
-    with open(os.path.join(out, "sprites.dps"), "wb") as f:
-        f.write(data)
-    body = dominant_hex(base)
     manifest = {
         "format": 1,
         "id": pid,
         "name": a.name[:24],
         "version": "1.0.0",
-        "creature": {
-            "sprites": "sprites.dps",
-            "scale": a.scale,
-            "body": body,
-            "outline": body,
-            "animations": animations,
-        },
+        "creature": {"sprites": "sprites.dps", "scale": a.scale},
+        "evolution": [],
     }
+    total = 0
+    for i, (level, name, image) in enumerate(stages):
+        data, count, animations, body = build_sheet(image, a.size, a.faces_left)
+        fname = "sprites.dps" if i == 0 else f"stage{i}.dps"
+        with open(os.path.join(out, fname), "wb") as f:
+            f.write(data)
+        total += len(data)
+        stage = {"level": level, "name": name[:24]}
+        if i == 0:
+            manifest["creature"].update({"animations": animations, "body": body, "outline": body})
+        else:
+            stage.update({"sprites": fname, "animations": animations})
+        manifest["evolution"].append(stage)
+        print(f"  stage {i}: {name} (Lv {level}) {count} frames, {len(data)} bytes")
     with open(os.path.join(out, "manifest.json"), "w") as f:
         json.dump(manifest, f, indent=2)
         f.write("\n")
-    print(f"wrote {out} ({len(frames)} frames, {len(data)} bytes)")
+    print(f"wrote {out} ({total} bytes)")
     if pid.startswith("private-"):
         print("private-* packs are gitignored: they stay on this machine and your device.")
     print("preview: ./build/deskpet_headless --preview", pid)

@@ -99,12 +99,20 @@ void Engine::drawHome(Canvas& c) {
   drawScene(c, room_, world_.view(), amb_);
   drawPet(c, pack_, world_.view(), look());
   drawHud(c);
+  drawToast(c);
+}
+
+void Engine::drawToast(Canvas& c) {
+  const Rect& r = layout::kToast;
+  if (toast_.empty() || !c.area().intersects(r)) return;
+  c.fillRoundRect(r.x, r.y, r.w, r.h, 10, kInk);
+  c.textCentered(r.x + r.w / 2, r.y + 6, fit(toast_, 11).c_str(), 2, kAccent);
 }
 
 void Engine::drawStats(Canvas& c) {
   c.fill(kBg);
   const PetStats& s = pet_.stats();
-  const EvolutionStage* st = pack_.cfg.stageFor(pet_.level());
+  const EvolutionStage* st = pack_.cfg.stage(pack_.stage);
   std::string name = st ? st->name : pack_.cfg.name;
   title(c, fit(name, 12).c_str());
   char line[32];
@@ -115,7 +123,73 @@ void Engine::drawStats(Canvas& c) {
   bar(c, 106, "FUN", s.fun, pet_.isLow(s.fun));
   bar(c, 136, "NRG", s.energy, pet_.isLow(s.energy));
   bar(c, 166, "XP", static_cast<float>(s.xp % 100), false);
-  c.textCentered(kScreenW / 2, 200, "< back", 2, kMuted);
+  // Rare Candy: +1 level (and maybe an evolution).
+  const Rect& b = layout::kCandyButton;
+  const bool have = s.candies > 0;
+  c.fillRoundRect(b.x, b.y, b.w, b.h, 14, have ? rgb(236, 96, 160) : kPanelHi);
+  c.fillCircle(b.x + 16, b.y + b.h / 2, 6, have ? kWhite : kMuted);  // candy
+  c.fillTriangle(b.x + 6, b.y + b.h / 2 - 5, b.x + 6, b.y + b.h / 2 + 5, b.x + 12, b.y + b.h / 2,
+                 have ? kWhite : kMuted);
+  char candy[16];
+  std::snprintf(candy, sizeof(candy), "x%u USE", static_cast<unsigned>(s.candies));
+  c.text(b.x + 30, b.y + 13, have ? candy : "NO CANDY", 2, have ? kWhite : kMuted);
+}
+
+void Engine::drawEvolution(Canvas& c) {
+  if (evo_.phase == EvoPhase::Flash) {
+    c.fill(kWhite);
+    return;
+  }
+  c.fill(rgb(18, 14, 30));
+  // Twinkling sparkles.
+  static const uint8_t sparkles[][2] = {{60, 96}, {176, 84}, {44, 150}, {196, 146}, {84, 60}, {160, 190}};
+  for (size_t i = 0; i < sizeof(sparkles) / sizeof(sparkles[0]); ++i)
+    if ((evo_.ticks + i) % 3 == 0) {
+      int x = sparkles[i][0], y = sparkles[i][1];
+      c.fillRect(x - 1, y - 4, 2, 8, kAccent);
+      c.fillRect(x - 4, y - 1, 8, 2, kAccent);
+    }
+
+  const std::string from = fit(evo_.fromName, 12), to = fit(evo_.toName, 12);
+  switch (evo_.phase) {
+    case EvoPhase::Intro:
+    case EvoPhase::Morph:
+      c.textCentered(kScreenW / 2, 30, "What?", 2, kWhite);
+      c.textCentered(kScreenW / 2, 50, (from + " is").c_str(), 2, kWhite);
+      c.textCentered(kScreenW / 2, 70, "evolving!", 2, kWhite);
+      c.textCentered(kScreenW / 2, 206, "BOOT: stop", 2, kMuted);
+      break;
+    case EvoPhase::Done:
+      c.textCentered(kScreenW / 2, 40, (from + " evolved").c_str(), 2, kWhite);
+      c.textCentered(kScreenW / 2, 60, ("into " + to + "!").c_str(), 2, kAccent);
+      break;
+    case EvoPhase::Cancelled:
+      c.textCentered(kScreenW / 2, 40, ("Huh? " + from).c_str(), 2, kWhite);
+      c.textCentered(kScreenW / 2, 60, "stopped evolving", 2, kWhite);
+      break;
+    default:
+      break;
+  }
+
+  ActorView v;
+  v.x = kScreenW / 2;
+  v.groundY = 186;
+  v.facing = 1;
+  v.activity = Activity::Idle;
+  v.tick = evo_.ticks;
+  PetLook l = look();
+  l.light = Tint();
+  l.mood = Mood::Happy;
+  if (evo_.phase == EvoPhase::Morph) {
+    // Old and new forms swap as white shapes, faster and faster.
+    int k = evo_.ticks - 7;
+    int period = std::max(1, 6 - k / 4);
+    bool showNew = (k / period) % 2 == 1;
+    l.silhouette = true;
+    drawPet(c, showNew ? evo_.next : pack_, v, l);
+  } else {
+    drawPet(c, pack_, v, l);
+  }
 }
 
 void Engine::drawAgenda(Canvas& c) {

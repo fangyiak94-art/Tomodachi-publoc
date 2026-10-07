@@ -1,9 +1,48 @@
 {
-  "_comment": "Pets make_packs.py can build. dex = National Dex number. shiny uses the shiny sprite. room = the room theme it suits (just a hint for you).",
+  "_comment": "Pets make_packs.py can build. dex = National Dex number. shiny uses the shiny sprite. room = the room theme it suits (a hint for you). evolves = later forms in the same pack, reached by levelling up (Rare Candy = +1 level).",
   "pokemon": [
-    { "id": "gastly",       "name": "Gastly",       "dex": 92, "room": "haunted" },
-    { "id": "haunter",      "name": "Haunter",      "dex": 93, "room": "haunted" },
-    { "id": "gengar",       "name": "Gengar",       "dex": 94, "room": "haunted" },
-    { "id": "gengar-shiny", "name": "Shiny Gengar", "dex": 94, "room": "haunted", "shiny": true }
+    {
+      "id": "gastly-line",
+      "name": "Gastly",
+      "dex": 92,
+      "room": "haunted",
+      "evolves": [
+        {
+          "level": 5,
+          "name": "Haunter",
+          "dex": 93
+        },
+        {
+          "level": 10,
+          "name": "Gengar",
+          "dex": 94
+        }
+      ]
+    },
+    {
+      "id": "gastly",
+      "name": "Gastly",
+      "dex": 92,
+      "room": "haunted"
+    },
+    {
+      "id": "haunter",
+      "name": "Haunter",
+      "dex": 93,
+      "room": "haunted"
+    },
+    {
+      "id": "gengar",
+      "name": "Gengar",
+      "dex": 94,
+      "room": "haunted"
+    },
+    {
+      "id": "gengar-shiny",
+      "name": "Shiny Gengar",
+      "dex": 94,
+      "room": "haunted",
+      "shiny": true
+    }
   ]
 }

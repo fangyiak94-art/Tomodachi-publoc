@@ -14,6 +14,7 @@ struct PetLook {
   Color body = 0;
   Tint light;  // the room's light; the pet gets half of it
   Color blanket = rgb(120, 150, 230);
+  bool silhouette = false;  // solid white shape (evolution scene)
 };
 
 void drawScene(Canvas& c, const LoadedRoom& room, const ActorView& a, const Ambience& amb);

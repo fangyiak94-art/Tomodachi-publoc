@@ -8,8 +8,34 @@ or into a shared pack store (see "Security and IP" in the requirements doc).
 
 ```bash
 pip install pillow
-python3 pokemon_tomo_packs/make_packs.py            # Gastly, Haunter, Gengar, Shiny Gengar
+python3 pokemon_tomo_packs/make_packs.py            # gastly-line + Gastly, Haunter, Gengar, Shiny Gengar
 python3 pokemon_tomo_packs/make_packs.py --list
+```
+
+## Evolution: gastly-line
+
+`gastly-line` is one pet that grows: **Gastly → Haunter (Lv 5) → Gengar
+(Lv 10)**. Level up with Rare Candy:
+- Press `c` in the simulator (or type `candy` in the board's serial
+  console) to get one. You also earn them from the first feed of each day
+  and every 2nd meeting you acknowledge.
+- Swipe ← to Stats and tap the pink **USE** button. 4 candies take Gastly
+  from Lv 1 to Lv 5.
+- Watch "What? Gastly is evolving!". Press BOOT (Esc) during it to stop it.
+
+Record it without a window:
+
+```bash
+./build/deskpet_headless --packs pokemon_tomo_packs/packs --preview gastly-line --candy 9 --room haunted
+# shots/evo_000.ppm ... one frame per tick of both evolutions
+```
+
+Make your own family by adding `"evolves"` to an entry in `pokemon.json`:
+
+```json
+{ "id": "charmander-line", "name": "Charmander", "dex": 4,
+  "evolves": [ { "level": 6, "name": "Charmeleon", "dex": 5 },
+               { "level": 12, "name": "Charizard", "dex": 6 } ] }
 ```
 
 ## Run a specific one in the simulator

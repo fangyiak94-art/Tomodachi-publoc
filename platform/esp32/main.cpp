@@ -50,7 +50,7 @@ dp::ConnectivityStatus connectivity() {
 
 // Serial console for bring-up without a phone or calendar:
 //   notify App|Title|Body     meeting <minutes> <title>
-//   time <unix seconds>       weather rain   speed <x>  stats  help
+//   time <unix seconds>       weather rain   candy   speed <x>  stats  help
 String lineBuf;
 void handleCommand(const String& cmd) {
   if (cmd.startsWith("notify ")) {
@@ -83,6 +83,8 @@ void handleCommand(const String& cmd) {
     dp::Weather w;
     if (dp::weatherFromName(cmd.substring(8).c_str(), w)) calendar.setWeather(w);
     else Serial.println("weather clear|cloudy|rain|snow");
+  } else if (cmd == "candy") {
+    engine->giveCandy(1, "serial console");
   } else if (cmd == "edit") {
     engine->openPortal();
   } else if (cmd.startsWith("speed ")) {
@@ -93,7 +95,7 @@ void handleCommand(const String& cmd) {
                   dp::screenName(engine->screen()));
   } else {
     Serial.println("commands: notify App|Title|Body, meeting <min> <title>, time <epoch>, "
-                   "weather <clear|cloudy|rain|snow>, edit, speed <x>, stats");
+                   "weather <clear|cloudy|rain|snow>, candy, edit, speed <x>, stats");
   }
 }
 

@@ -19,11 +19,15 @@ struct Anim {
   std::vector<uint8_t> frames;
 };
 
+// One form of the creature. Stages are sorted by level; the pet evolves
+// into the next one when it reaches that level (see Engine evolution).
 struct EvolutionStage {
   uint32_t level = 1;
   std::string name;
   Color body = 0;
   bool hasBody = false;
+  std::string sprites;     // own sprite sheet; empty = the pack's
+  std::vector<Anim> anims; // own animations; empty = the pack's
 };
 
 struct PackConfig {
@@ -44,6 +48,9 @@ struct PackConfig {
   const char* sound(const char* name) const;
   // Highest stage whose level <= `level` (nullptr if none).
   const EvolutionStage* stageFor(uint32_t level) const;
+  // Index of that stage (0 when there are no stages).
+  int stageIndexFor(uint32_t level) const;
+  const EvolutionStage* stage(int index) const;
 };
 
 PackConfig defaultPack();
@@ -62,16 +69,22 @@ bool parseImage4(const uint8_t* data, size_t len, Image4& out, std::string& err)
 
 struct LoadedPack {
   PackConfig cfg;
+  int stage = 0;           // evolution stage this sprite sheet belongs to
+  std::vector<Anim> anims; // animations for that stage
   std::string spriteBlob;
   Image4 sprite;
   bool hasSprite = false;
+
+  const Anim* anim(const std::string& name) const;
 
   // Image4::data points into the blob. Moving a std::string may move its
   // buffer (small-string optimisation), so call this after moving a pack.
   void rebind();
 };
 
-// Loads /packs/<id>/... . On failure `out` holds the built-in default pack.
-bool loadPack(Storage& storage, const std::string& id, LoadedPack& out, std::string& err);
+// Loads /packs/<id>/... with the sprite sheet of evolution stage `stage`
+// (clamped). On failure `out` holds the built-in default pack.
+bool loadPack(Storage& storage, const std::string& id, LoadedPack& out, std::string& err,
+              int stage = 0);
 
 }  // namespace dp

@@ -38,6 +38,7 @@ meeting 11 Standup         a meeting in 11 minutes, so the alert shows in 1
 notify WhatsApp|Ali|Lunch? a phone notification
 weather rain               change the room's weather (clear|cloudy|rain|snow)
 edit                       open the room editor hotspot
+candy                      get a Rare Candy (use it on the Stats screen)
 speed 600                  make pet time run 600x
 stats                      pet JSON + free heap
 ```

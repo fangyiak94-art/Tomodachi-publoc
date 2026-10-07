@@ -829,6 +829,108 @@ TEST(engine_rain_redraws_window_only_in_house) {
   if (e.world().view().scene == SceneId::House) CHECK(e.renderStats().fullRedraws == full);
 }
 
+TEST(rare_candy_levels_up) {
+  Pet p;
+  p.stats().xp = 250;  // level 3
+  CHECK(!p.useRareCandy());
+  p.stats().candies = 2;
+  CHECK(p.useRareCandy() && p.level() == 4 && p.stats().xp == 300);
+  CHECK(p.useRareCandy() && p.level() == 5);
+  CHECK(p.stats().candies == 0);
+  int64_t at;
+  p.stats().stage = 2;
+  p.stats().treatDay = 20000;
+  Pet q;
+  CHECK(q.fromJson(p.toJson(0), at));
+  CHECK(q.stats().stage == 2 && q.stats().treatDay == 20000 && q.level() == 5);
+  CHECK(q.fromJson("{\"v\":1,\"candies\":99999,\"stage\":200}", at));
+  CHECK(q.stats().candies == 999 && q.stats().stage == 7);  // clamped
+}
+
+TEST(evolution_stages_parse_and_validate) {
+  PackConfig p;
+  std::string err;
+  const std::string ok = R"({"format":1,"id":"x","name":"X","creature":{"sprites":"a.dps","animations":{"idle":[0]}},
+    "evolution":[{"level":10,"name":"C","sprites":"c.dps","animations":{"idle":[0,1]}},
+                 {"level":1,"name":"A"},{"level":5,"name":"B","sprites":"b.dps"}]})";
+  CHECK(parseManifest(ok.data(), ok.size(), p, err));
+  CHECK(p.evolution.size() == 3 && p.evolution[0].name == "A" && p.evolution[2].name == "C");  // sorted
+  CHECK(p.stageIndexFor(1) == 0 && p.stageIndexFor(7) == 1 && p.stageIndexFor(99) == 2);
+  CHECK(p.evolution[2].anims.size() == 1 && p.evolution[1].anims.empty());
+  const std::string badFile = R"({"format":1,"id":"x","name":"X","evolution":[{"level":2,"name":"B","sprites":"../b.dps"}]})";
+  CHECK(!parseManifest(badFile.data(), badFile.size(), p, err));
+  const std::string noIdle = R"({"format":1,"id":"x","name":"X","evolution":[{"level":2,"name":"B","sprites":"b.dps","animations":{"walk":[0]}}]})";
+  CHECK(!parseManifest(noIdle.data(), noIdle.size(), p, err));
+}
+
+static void runUntilNoEvolution(EngineRig& r, int maxTicks) {
+  for (int i = 0; i < maxTicks && r.engine->evoPhase() != EvoPhase::None; ++i)
+    r.run(Engine::kTickMs);
+}
+
+TEST(engine_candy_evolution_cancel_and_persist) {
+  {
+    EngineRig r("evolve");
+    Engine& e = *r.engine;
+    CHECK(e.pack().cfg.id == "blobby");
+    CHECK(!e.useRareCandy());  // none yet
+    e.giveCandy(5, "test");
+    CHECK(e.toast() == "+5 CANDY!");
+    for (int i = 0; i < 3; ++i) CHECK(e.useRareCandy());
+    CHECK(e.pet().level() == 4 && e.evoPhase() == EvoPhase::None);
+    CHECK(e.useRareCandy());  // level 5: Big Blobby
+    CHECK(e.evoPhase() == EvoPhase::Intro);
+    CHECK(!e.useRareCandy());  // not during the scene
+    r.run(Engine::kTickMs * 3);
+    e.handleGesture({Gesture::Back, 120, 120});  // stop it
+    CHECK(e.evoPhase() == EvoPhase::Cancelled);
+    runUntilNoEvolution(r, 40);
+    CHECK(e.pack().stage == 0 && e.pet().stats().stage == 0);
+    CHECK(e.useRareCandy());  // level 6: tries again
+    CHECK(e.evoPhase() == EvoPhase::Intro);
+    runUntilNoEvolution(r, 120);
+    CHECK(e.pack().stage == 1 && e.pet().stats().stage == 1);
+    e.save();
+  }
+  // Reboot: still Big Blobby.
+  pc::FramebufferDisplay d;
+  pc::ScriptInput in;
+  pc::ManualClock clk;
+  clk.epochBase = 1791363600;
+  pc::DirStorage st(std::string(DESKPET_SOURCE_DIR) + "/fs");
+  st.setWriteRoot((std::filesystem::temp_directory_path() / "deskpet_test_evolve").string());
+  Platform p;
+  p.display = &d;
+  p.input = &in;
+  p.clock = &clk;
+  p.storage = &st;
+  Engine e(p);
+  e.begin();
+  CHECK(e.pet().level() == 6);
+  CHECK(e.pack().stage == 1 && e.pack().cfg.stage(1)->name == "Big Blobby");
+}
+
+TEST(engine_earns_candy_from_meetings_and_daily_treat) {
+  EngineRig r("earn");
+  Engine& e = *r.engine;
+  // First feed of the day.
+  e.handleGesture({Gesture::SwipeUp, 120, 120});
+  e.handleGesture({Gesture::Tap, 76, 78});  // FEED
+  CHECK(e.pet().stats().candies == 1);
+  e.handleGesture({Gesture::SwipeUp, 120, 120});
+  e.handleGesture({Gesture::Tap, 76, 78});  // same day: no more
+  CHECK(e.pet().stats().candies == 1);
+  // Two acknowledged meetings.
+  int64_t now = r.clock.epoch();
+  e.alerts().setEvents({{"a", "A", now + 60, now + 600}, {"b", "B", now + 120, now + 700}});
+  for (int i = 0; i < 2; ++i) {
+    r.run(100);
+    CHECK(e.alerts().active() == AlertKind::Meeting);
+    e.handleGesture({Gesture::Tap, 120, 120});
+  }
+  CHECK(e.pet().stats().meetingAcks == 2 && e.pet().stats().candies == 2);
+}
+
 int main() {
   int failedTests = 0;
   for (const TestCase& t : registry()) {

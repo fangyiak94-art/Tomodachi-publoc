@@ -327,7 +327,7 @@ void drawProcedural(Canvas& c, const PackConfig& p, const ActorView& a, const Pe
   drawEffects(c, a, cx, cy - ry);
 }
 
-const Anim* pickAnim(const PackConfig& p, const ActorView& a, Mood mood) {
+const Anim* pickAnim(const LoadedPack& p, const ActorView& a, Mood mood) {
   const char* base = "idle";
   switch (a.activity) {
     case Activity::Walking: base = "walk"; break;
@@ -353,10 +353,17 @@ void drawPet(Canvas& c, const LoadedPack& pack, const ActorView& a, const PetLoo
     ~Reset() { c.setTint(Tint()); }
   } reset{c};
   if (!pack.hasSprite) {
+    if (look.silhouette) {
+      const int gy = a.groundY - a.hop;
+      c.fillEllipse(a.x - 12, gy - 4, 8, 5, palette::kWhite);
+      c.fillEllipse(a.x + 12, gy - 4, 8, 5, palette::kWhite);
+      c.fillEllipse(a.x, gy - 28, 28, 24, palette::kWhite);
+      return;
+    }
     drawProcedural(c, pack.cfg, a, look);
     return;
   }
-  const Anim* an = pickAnim(pack.cfg, a, look.mood);
+  const Anim* an = pickAnim(pack, a, look.mood);
   if (!an) return;
   const int s = pack.cfg.spriteScale;
   const int w = pack.sprite.w * s, h = pack.sprite.h * s;
@@ -365,6 +372,12 @@ void drawPet(Canvas& c, const LoadedPack& pack, const ActorView& a, const PetLoo
   const bool twoStep = a.activity == Activity::Walking && an->frames.size() == 2;
   const int frame = an->frames[(twoStep ? a.walkFrame : a.tick) % an->frames.size()];
   const int top = a.groundY - a.hop - h;
+  if (look.silhouette) {
+    Image4 white = pack.sprite;  // same pixels, every colour white
+    for (Color& col : white.palette) col = palette::kWhite;
+    c.image(white, frame, a.x - w / 2, top, s, a.facing < 0, true);
+    return;
+  }
   c.image(pack.sprite, frame, a.x - w / 2, top, s, a.facing < 0, true);
   drawEffects(c, a, a.x, top);
 }

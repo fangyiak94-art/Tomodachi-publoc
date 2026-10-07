@@ -2,11 +2,30 @@
 
 #include <ArduinoJson.h>
 
+#include <algorithm>
 #include <cstring>
 
 namespace dp {
 
 const Anim* PackConfig::anim(const std::string& n) const {
+  for (const Anim& a : anims)
+    if (a.name == n) return &a;
+  return nullptr;
+}
+
+int PackConfig::stageIndexFor(uint32_t level) const {
+  int best = 0;
+  for (size_t i = 0; i < evolution.size(); ++i)
+    if (evolution[i].level <= level) best = static_cast<int>(i);
+  return best;
+}
+
+const EvolutionStage* PackConfig::stage(int index) const {
+  if (index < 0 || index >= static_cast<int>(evolution.size())) return nullptr;
+  return &evolution[static_cast<size_t>(index)];
+}
+
+const Anim* LoadedPack::anim(const std::string& n) const {
   for (const Anim& a : anims)
     if (a.name == n) return &a;
   return nullptr;
@@ -31,8 +50,9 @@ PackConfig defaultPack() {
       {"meeting", "meeting:d=8,o=6,b=180:c,e,g,p,c,e,g"},
       {"notify", "notify:d=16,o=6,b=200:e,g"},
       {"happy", "happy:d=16,o=6,b=200:c,e,g,c7"},
+      {"evolve", "evolve:d=16,o=5,b=160:c,e,g,c6,d,f,a,d6,e,g,b,e6,c6,e6,g6,c7"},
   };
-  p.evolution = {{1, "Blobby", 0, false}};
+  p.evolution = {{1, "Blobby", 0, false, "", {}}};
   return p;
 }
 
@@ -95,6 +115,26 @@ bool optionalFile(JsonVariantConst v, std::string& out, std::string& err, const 
   return true;
 }
 
+bool parseAnims(JsonObjectConst anims, std::vector<Anim>& out, std::string& err) {
+  for (JsonPairConst kv : anims) {
+    if (out.size() >= 32) { err = "too many animations"; return false; }
+    Anim a;
+    a.name = kv.key().c_str();
+    if (a.name.empty() || a.name.size() > 24) { err = "bad animation name"; return false; }
+    JsonArrayConst frames = kv.value();
+    if (frames.size() == 0 || frames.size() > 16) { err = "animation needs 1-16 frames"; return false; }
+    for (JsonVariantConst f : frames) a.frames.push_back(static_cast<uint8_t>(num(f, 0, 0, 63)));
+    out.push_back(a);
+  }
+  return true;
+}
+
+bool hasAnim(const std::vector<Anim>& anims, const char* name) {
+  for (const Anim& a : anims)
+    if (a.name == name) return true;
+  return false;
+}
+
 bool parseStat(const char* s, Stat& out) {
   if (!s) return false;
   if (!std::strcmp(s, "food")) out = Stat::Food;
@@ -138,17 +178,7 @@ bool parseManifest(const char* data, size_t len, PackConfig& out, std::string& e
   parseColor(cr["cheek"], p.cheek);
   if (!optionalFile(cr["sprites"], p.sprites, err, "sprites")) return false;
   p.spriteScale = static_cast<uint8_t>(num(cr["scale"], 3, 1, 6));
-  JsonObjectConst anims = cr["animations"];
-  for (JsonPairConst kv : anims) {
-    if (p.anims.size() >= 32) { err = "too many animations"; return false; }
-    Anim a;
-    a.name = kv.key().c_str();
-    if (a.name.empty() || a.name.size() > 24) { err = "bad animation name"; return false; }
-    JsonArrayConst frames = kv.value();
-    if (frames.size() == 0 || frames.size() > 16) { err = "animation needs 1-16 frames"; return false; }
-    for (JsonVariantConst f : frames) a.frames.push_back(static_cast<uint8_t>(num(f, 0, 0, 63)));
-    p.anims.push_back(a);
-  }
+  if (!parseAnims(cr["animations"], p.anims, err)) return false;
   if (!p.sprites.empty() && !p.anim("idle")) { err = "sprite packs need an 'idle' animation"; return false; }
 
   // Stats and behaviour.
@@ -211,8 +241,16 @@ bool parseManifest(const char* data, size_t len, PackConfig& out, std::string& e
       st.level = static_cast<uint32_t>(num(s["level"], 1, 1, 1000));
       if (!boundedString(s["name"], 24, st.name)) { err = "evolution stage needs a name"; return false; }
       st.hasBody = parseColor(s["body"], st.body);
+      if (!optionalFile(s["sprites"], st.sprites, err, "evolution sprites")) return false;
+      if (!parseAnims(s["animations"], st.anims, err)) return false;
+      if (!st.sprites.empty() && !hasAnim(st.anims.empty() ? p.anims : st.anims, "idle")) {
+        err = "evolution stage '" + st.name + "' needs an 'idle' animation";
+        return false;
+      }
       p.evolution.push_back(st);
     }
+    std::stable_sort(p.evolution.begin(), p.evolution.end(),
+                     [](const EvolutionStage& a, const EvolutionStage& b) { return a.level < b.level; });
   }
 
   JsonObjectConst sounds = doc["sounds"];
@@ -282,7 +320,8 @@ void LoadedPack::rebind() {
   if (hasSprite) sprite.data = reinterpret_cast<const uint8_t*>(spriteBlob.data()) + kImageHeaderBytes;
 }
 
-bool loadPack(Storage& storage, const std::string& id, LoadedPack& out, std::string& err) {
+bool loadPack(Storage& storage, const std::string& id, LoadedPack& out, std::string& err,
+              int stage) {
   out = LoadedPack();
   out.cfg = defaultPack();
   if (!isSafeFileName(id)) {
@@ -298,10 +337,17 @@ bool loadPack(Storage& storage, const std::string& id, LoadedPack& out, std::str
   LoadedPack p;
   if (!parseManifest(manifest.data(), manifest.size(), p.cfg, err)) return false;
 
-  if (!p.cfg.sprites.empty()) {
-    if (!loadImage(storage, dir + p.cfg.sprites, kMaxSpriteBytes, p.spriteBlob, p.sprite, err))
+  // Each evolution stage may bring its own sheet and animations; only the
+  // current stage's sheet is kept in RAM.
+  const int stages = static_cast<int>(p.cfg.evolution.size());
+  p.stage = stages == 0 ? 0 : (stage < 0 ? 0 : (stage >= stages ? stages - 1 : stage));
+  const EvolutionStage* st = p.cfg.stage(p.stage);
+  const std::string& sheet = st && !st->sprites.empty() ? st->sprites : p.cfg.sprites;
+  p.anims = st && !st->anims.empty() ? st->anims : p.cfg.anims;
+  if (!sheet.empty()) {
+    if (!loadImage(storage, dir + sheet, kMaxSpriteBytes, p.spriteBlob, p.sprite, err))
       return false;
-    for (const Anim& a : p.cfg.anims)
+    for (const Anim& a : p.anims)
       for (uint8_t f : a.frames)
         if (f >= p.sprite.frames) {
           err = "animation '" + a.name + "' uses a missing frame";

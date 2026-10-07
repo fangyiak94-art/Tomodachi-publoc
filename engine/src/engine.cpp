@@ -77,7 +77,7 @@ PetLook Engine::look() const {
   l.body = pack_.cfg.body;
   l.light = sceneTint(amb_, world_.view().scene);
   l.blanket = room_.cfg.colors.blanket;
-  if (const EvolutionStage* st = pack_.cfg.stageFor(pet_.level()))
+  if (const EvolutionStage* st = pack_.cfg.stage(pack_.stage))
     if (st->hasBody) l.body = st->body;
   return l;
 }
@@ -88,6 +88,16 @@ void Engine::begin() {
   loadSettings();
   world_.reset(room_.cfg, p_.seed);
   restorePet();
+  // Show the form the pet had evolved into (saved), not just stage 0.
+  {
+    int want = std::min<int>(pet_.stats().stage, static_cast<int>(pack_.cfg.evolution.size()) - 1);
+    LoadedPack staged;
+    if (want > 0 && want != pack_.stage && loadPackStage(pack_.cfg.id, want, staged)) {
+      pack_ = std::move(staged);
+      pack_.rebind();
+    }
+    pet_.stats().stage = static_cast<uint8_t>(std::max(0, pack_.stage));
+  }
   amb_ = computeAmbience();
   lastLevel_ = pet_.level();
   lastTickMs_ = lastSaveMs_ = p_.clock->millis();
@@ -108,18 +118,34 @@ std::vector<std::string> Engine::listPacks() {
   return ids;
 }
 
-bool Engine::selectPack(const std::string& id) {
-  if (!p_.storage) return false;
-  LoadedPack next;
+bool Engine::loadPackStage(const std::string& id, int stage, LoadedPack& out) {
   std::string err;
-  if (!loadPack(*p_.storage, id, next, err)) {
+  if (!p_.storage || !loadPack(*p_.storage, id, out, err, stage)) {
     packError_ = err;
     log("deskpet: pack '" + id + "' rejected: " + err);
     return false;
   }
+  return true;
+}
+
+bool Engine::selectPack(const std::string& id) {
+  if (!p_.storage) return false;
+  // Same pet: keep its form. Another pet: take the form its level allows.
+  int stage = 0;
+  if (started_) {
+    if (id == pack_.cfg.id) stage = pet_.stats().stage;
+    else stage = -1;  // decided after the manifest is known
+  }
+  LoadedPack next;
+  if (!loadPackStage(id, stage < 0 ? 0 : stage, next)) return false;
+  if (stage < 0) {
+    int target = next.cfg.stageIndexFor(pet_.level());
+    if (target != next.stage && !loadPackStage(id, target, next)) return false;
+  }
   packError_.clear();
   pack_ = std::move(next);
   pack_.rebind();
+  if (started_) pet_.stats().stage = static_cast<uint8_t>(pack_.stage);
   pet_.setTuning(pack_.cfg.tuning);
   log("deskpet: loaded pack '" + pack_.cfg.id + "' v" + pack_.cfg.version);
   if (started_) {
@@ -337,10 +363,11 @@ void Engine::tick() {
   pet_.elapse(static_cast<float>(kTickMs) * timeScale_ / 3600000.0f);
   world_.tick(pet_);
 
-  if (pet_.level() > lastLevel_) {
-    lastLevel_ = pet_.level();
-    if (const char* t = pack_.cfg.sound("happy")) tune_.play(t, 0);
-    log("deskpet: level up to " + std::to_string(lastLevel_));
+  if (pet_.level() > lastLevel_) onLevelUp();
+  if (evo_.phase != EvoPhase::None) stepEvolution();
+  if (toastTicks_ > 0 && --toastTicks_ == 0) {
+    toast_.clear();
+    invalidate(layout::kToast);
   }
   if (asleepBefore != pet_.asleep()) {
     applyBrightness();
@@ -381,6 +408,7 @@ uint32_t Engine::contentHash() {
     mix(static_cast<uint32_t>(s.fun));
     mix(static_cast<uint32_t>(s.energy));
     mix(s.xp);
+    mix(s.candies);
     mix(static_cast<uint32_t>(pet_.mood()));
   } else if (screen_ == Screen::Agenda) {
     for (const CalendarEvent& e : alerts_.events()) mix(static_cast<uint32_t>(e.start));
@@ -431,11 +459,13 @@ void Engine::handleGesture(const InputEvent& e) {
     onAlert(e);
     return;
   }
+  if (evo_.phase != EvoPhase::None) {
+    onEvolutionGesture(e);
+    return;
+  }
   switch (screen_) {
     case Screen::Home: onHome(e); break;
-    case Screen::Stats:
-      if (e.gesture == Gesture::SwipeRight || e.gesture == Gesture::Back) goTo(Screen::Home);
-      break;
+    case Screen::Stats: onStats(e); break;
     case Screen::Agenda:
       if (e.gesture == Gesture::SwipeLeft || e.gesture == Gesture::Back) goTo(Screen::Home);
       break;
@@ -455,6 +485,7 @@ void Engine::onAlert(const InputEvent& e) {
     if (e.gesture == Gesture::Tap) {
       pet_.meetingAck();
       world_.tapped(pet_);
+      if (pet_.stats().meetingAcks % 2 == 0) giveCandy(1, "meeting streak");
       alerts_.ack();
       tune_.stop(p_.buzzer);
     } else if (e.gesture == Gesture::LongPress) {
@@ -501,7 +532,15 @@ void Engine::onActions(const InputEvent& e) {
     if (layout::kActionTiles[i].contains(e.x, e.y)) hit = i;
   if (hit < 0) return;
   switch (hit) {
-    case 0: world_.requestFeed(pet_); break;
+    case 0: {
+      world_.requestFeed(pet_);
+      int64_t day = localDay();  // first meal of the day comes with a treat
+      if (day >= 0 && day != pet_.stats().treatDay) {
+        pet_.stats().treatDay = static_cast<int32_t>(day);
+        giveCandy(1, "daily treat");
+      }
+      break;
+    }
     case 1: world_.requestPlay(pet_); break;
     case 2:
       if (pet_.asleep()) world_.wake(pet_);
@@ -599,6 +638,7 @@ void Engine::drawAll(Canvas& c) {
     case Screen::Settings: drawSettings(c); break;
     case Screen::Upload: drawUpload(c); break;
   }
+  if (evo_.phase != EvoPhase::None) drawEvolution(c);
   if (alerts_.active() == AlertKind::Meeting) drawMeeting(c);
   else if (alerts_.active() == AlertKind::Notification) drawNotification(c);
 }
@@ -611,6 +651,148 @@ std::string Engine::clockText(int64_t t) {
   char buf[16];
   std::snprintf(buf, sizeof(buf), "%02d:%02d", mins / 60, mins % 60);
   return buf;
+}
+
+}  // namespace dp
+
+namespace dp {
+
+// --------------------------------------------------- candy and evolution
+
+namespace {
+constexpr uint16_t kIntroEnd = 7;    // "What? X is evolving!"
+constexpr uint16_t kMorphEnd = 31;   // silhouettes flashing faster
+constexpr uint16_t kFlashEnd = 35;   // white flash, then the new form
+constexpr uint16_t kDoneEnd = 75;    // message stays ~11 s (or tap)
+constexpr uint16_t kCancelEnd = 9;
+}  // namespace
+
+int64_t Engine::localDay() {
+  int64_t t = now();
+  if (t <= 0) return -1;
+  return (t + int64_t(p_.clock->utcOffsetMinutes()) * 60) / 86400;
+}
+
+void Engine::showToast(const std::string& text) {
+  toast_ = text;
+  toastTicks_ = 12;  // ~3.4 s
+  invalidate(layout::kToast);
+}
+
+void Engine::giveCandy(int n, const char* why) {
+  PetStats& s = pet_.stats();
+  s.candies = static_cast<uint16_t>(std::min(999, s.candies + n));
+  showToast("+" + std::to_string(n) + " CANDY!");
+  log(std::string("deskpet: +") + std::to_string(n) + " Rare Candy (" + (why ? why : "gift") + ")");
+  save();
+}
+
+bool Engine::useRareCandy() {
+  if (evo_.phase != EvoPhase::None || !pet_.useRareCandy()) return false;
+  if (pet_.asleep()) world_.wake(pet_);
+  goTo(Screen::Home);
+  world_.celebrate();
+  log("deskpet: Rare Candy used");
+  onLevelUp();
+  save();
+  return true;
+}
+
+void Engine::onLevelUp() {
+  lastLevel_ = pet_.level();
+  showToast("LEVEL " + std::to_string(lastLevel_) + "!");
+  if (const char* t = pack_.cfg.sound("happy")) tune_.play(t, 0);
+  log("deskpet: level up to " + std::to_string(lastLevel_));
+  checkEvolution();
+}
+
+void Engine::checkEvolution() {
+  if (evo_.phase != EvoPhase::None) return;
+  const int stage = pack_.stage;
+  const int target = pack_.cfg.stageIndexFor(pet_.level());
+  if (target <= stage || pet_.level() <= refusedLevel_) return;
+  const int to = stage + 1;  // one form at a time
+  LoadedPack next;
+  if (!loadPackStage(pack_.cfg.id, to, next)) {
+    refusedLevel_ = pet_.level();
+    return;
+  }
+  evo_.phase = EvoPhase::Intro;
+  evo_.to = to;
+  evo_.ticks = 0;
+  evo_.fromName = pack_.cfg.stage(stage) ? pack_.cfg.stage(stage)->name : pack_.cfg.name;
+  evo_.toName = next.cfg.stage(to)->name;
+  evo_.next = std::move(next);
+  evo_.next.rebind();
+  if (pet_.asleep()) world_.wake(pet_);
+  if (screen_ != Screen::Home) goTo(Screen::Home);
+  if (const char* t = pack_.cfg.sound("evolve")) tune_.play(t, 0);
+  log("deskpet: " + evo_.fromName + " is evolving into " + evo_.toName);
+  invalidateAll();
+}
+
+void Engine::stepEvolution() {
+  ++evo_.ticks;
+  invalidateAll();  // the scene animates every tick
+  switch (evo_.phase) {
+    case EvoPhase::Intro:
+      if (evo_.ticks >= kIntroEnd) evo_.phase = EvoPhase::Morph;
+      break;
+    case EvoPhase::Morph:
+      if (evo_.ticks >= kMorphEnd) evo_.phase = EvoPhase::Flash;
+      break;
+    case EvoPhase::Flash:
+      if (evo_.ticks >= kFlashEnd) {
+        pack_ = std::move(evo_.next);
+        pack_.rebind();
+        evo_.next = LoadedPack();
+        pet_.stats().stage = static_cast<uint8_t>(pack_.stage);
+        evo_.phase = EvoPhase::Done;
+        if (const char* t = pack_.cfg.sound("happy")) tune_.play(t, 0);
+        log("deskpet: evolved into " + evo_.toName);
+        save();
+      }
+      break;
+    case EvoPhase::Done:
+      if (evo_.ticks >= kDoneEnd) {
+        evo_.phase = EvoPhase::None;
+        checkEvolution();  // a big candy streak may allow another step
+      }
+      break;
+    case EvoPhase::Cancelled:
+      if (evo_.ticks >= kCancelEnd) evo_.phase = EvoPhase::None;
+      break;
+    case EvoPhase::None:
+      break;
+  }
+}
+
+void Engine::onEvolutionGesture(const InputEvent& e) {
+  if ((evo_.phase == EvoPhase::Intro || evo_.phase == EvoPhase::Morph) &&
+      e.gesture == Gesture::Back) {
+    evo_.phase = EvoPhase::Cancelled;
+    evo_.ticks = 0;
+    evo_.next = LoadedPack();
+    refusedLevel_ = pet_.level();
+    tune_.stop(p_.buzzer);
+    log("deskpet: evolution stopped");
+    invalidateAll();
+  } else if ((evo_.phase == EvoPhase::Done && evo_.ticks > kFlashEnd + 4) ||
+             evo_.phase == EvoPhase::Cancelled) {
+    if (e.gesture == Gesture::Tap || e.gesture == Gesture::Back) {
+      evo_.phase = EvoPhase::None;
+      invalidateAll();
+      checkEvolution();
+    }
+  }
+}
+
+void Engine::onStats(const InputEvent& e) {
+  if (e.gesture == Gesture::SwipeRight || e.gesture == Gesture::Back) {
+    goTo(Screen::Home);
+  } else if (e.gesture == Gesture::Tap && layout::kCandyButton.contains(e.x, e.y)) {
+    if (!useRareCandy()) invalidateAll();
+  }
 }
 
 }  // namespace dp

@@ -9,6 +9,7 @@
 //   f           cycle speed 1x / 60x / 600x (pet time only)
 //   w           cycle weather: clear, cloudy, rain, snow
 //   h           jump the clock +3 hours (see day/night lighting)
+//   c           get a Rare Candy (use it on the Stats screen)
 //   1           zoom 1:1 (real panel size) / 2x / 3x
 //   p           save screenshot     q      quit
 //
@@ -199,7 +200,7 @@ int main(int argc, char** argv) {
   }
   if (edit) engine.openPortal();
   std::printf("Desk Pet simulator. Mouse = finger. Keys: arrows swipe, space tap, enter double tap,\n"
-              "l long press, esc BOOT, n notification, m meeting, w weather, h +3h, f speed, 1 zoom,\n"
+              "l long press, esc BOOT, n notification, m meeting, w weather, h +3h, c candy, f speed, 1 zoom,\n"
               "p screenshot, q quit. Room editor: Settings > UPLOAD, then http://localhost:%d\n", port);
 
   static const Notification samples[] = {
@@ -248,6 +249,7 @@ int main(int argc, char** argv) {
           weather.set(cycle[wi++ % 4]);
           break;
         }
+        case SDLK_c: engine.giveCandy(1, "simulator key"); break;
         case SDLK_h:
           clock.skew += 3 * 3600;
           std::printf("clock +3h\n");

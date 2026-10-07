@@ -12,7 +12,8 @@ Nintendo/Game Freak's.
     python3 pokemon_tomo_packs/make_packs.py --list
 
 Then:
-    ./build/deskpet_sim --packs pokemon_tomo_packs/packs --pack gengar --room haunted
+    ./build/deskpet_sim --packs pokemon_tomo_packs/packs --pack gastly-line --room haunted
+    (Stats screen > use Rare Candy to level up; "c" in the simulator gives candy)
     python3 tools/stage_fs.py --packs pokemon_tomo_packs/packs --only gengar   # for the board
 
 Add more Pokemon by adding lines to pokemon.json.
@@ -40,9 +41,10 @@ def urls(dex, shiny):
 def download(entry):
     cache = os.path.join(HERE, "cache")
     os.makedirs(cache, exist_ok=True)
-    for url in urls(entry["dex"], entry.get("shiny", False)):
+    shiny = entry.get("shiny", False)
+    for url in urls(entry["dex"], shiny):
         ext = url.rsplit(".", 1)[1]
-        path = os.path.join(cache, f"{entry['id']}.{ext}")
+        path = os.path.join(cache, f"{entry['dex']}{'-shiny' if shiny else ''}.{ext}")
         if os.path.exists(path):
             return path
         try:
@@ -67,7 +69,8 @@ def main():
     entries = json.load(open(os.path.join(HERE, "pokemon.json")))["pokemon"]
     if a.list:
         for e in entries:
-            print(f"{e['id']:14} {e['name']:14} #{e['dex']}  room: {e.get('room', '-')}")
+            evo = "".join(f" -> {s['name']} Lv{s['level']}" for s in e.get("evolves", []))
+            print(f"{e['id']:14} {e['name']}{evo}  #{e['dex']}  room: {e.get('room', '-')}")
         return
     wanted = set(a.ids) if a.ids else {e["id"] for e in entries}
     unknown = wanted - {e["id"] for e in entries}
@@ -79,21 +82,29 @@ def main():
     for e in entries:
         if e["id"] not in wanted:
             continue
-        print(f"{e['name']}:")
+        family = " -> ".join([e["name"]] + [f"{s['name']} (Lv {s['level']})" for s in e.get("evolves", [])])
+        print(f"{family}:")
         src = download(e)
+        cmd = [sys.executable, os.path.join(ROOT, "tools", "image2pack.py"), src or "",
+               "--name", e["name"], "--id", e["id"], "--size", a.size, "--out", out]
+        for stage in e.get("evolves", []):
+            stage_src = download({"dex": stage["dex"], "shiny": stage.get("shiny", e.get("shiny", False))})
+            if not stage_src:
+                src = None
+            cmd += ["--evolve", str(stage["level"]), stage["name"], stage_src or ""]
         if not src:
             failed.append(e["id"])
             continue
-        r = subprocess.run([sys.executable, os.path.join(ROOT, "tools", "image2pack.py"), src,
-                            "--name", e["name"], "--id", e["id"], "--size", a.size, "--out", out],
-                           capture_output=True, text=True)
-        print("  " + (r.stdout.strip().splitlines()[0] if r.returncode == 0 else r.stderr.strip()))
+        r = subprocess.run(cmd, capture_output=True, text=True)
+        lines = r.stdout.strip().splitlines()
+        print("  " + (lines[-2] if r.returncode == 0 and len(lines) > 1 else r.stderr.strip()))
         if r.returncode != 0:
             failed.append(e["id"])
     if failed:
         sys.exit(f"failed: {', '.join(failed)}")
     print(f"\nPacks are in {out}")
-    print("Run: ./build/deskpet_sim --packs pokemon_tomo_packs/packs --pack gengar --room haunted")
+    print("Run: ./build/deskpet_sim --packs pokemon_tomo_packs/packs --pack gastly-line --room haunted")
+    print("     (press c for a Rare Candy, then Stats > use it to level up and evolve)")
 
 
 if __name__ == "__main__":

@@ -16,5 +16,9 @@ constexpr int kRowRoom = 152;
 constexpr int kRowUpload = 196;
 constexpr int kRowH = 44;
 
+// Stats screen "use Rare Candy" button and the home toast strip.
+constexpr Rect kCandyButton = Rect(60, 188, 120, 40);
+constexpr Rect kToast = Rect(46, 194, 148, 26);
+
 }  // namespace layout
 }  // namespace dp

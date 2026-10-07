@@ -49,7 +49,8 @@ class World {
   void requestHome(Pet& pet);
   void wake(Pet& pet);
   void tapped(Pet& pet);
-  void notified();  // react to a phone notification: jump and look up
+  void notified();   // react to a phone notification: jump and look up
+  void celebrate();  // jump with a heart (level up), no stat change
 
   const ActorView& view() const { return v_; }
   bool busy() const { return !plan_.empty(); }
