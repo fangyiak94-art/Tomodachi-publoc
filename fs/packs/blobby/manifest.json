@@ -1,0 +1,46 @@
+{
+  "format": 1,
+  "id": "blobby",
+  "name": "Blobby",
+  "version": "1.0.0",
+  "creature": {
+    "body": "#7ED6A5",
+    "outline": "#2E6B4F",
+    "cheek": "#F59AA8"
+  },
+  "decay": {
+    "awake": { "food": 10, "fun": 5, "energy": 8 },
+    "asleep": { "food": 5, "fun": 0, "energyGain": 20 }
+  },
+  "actions": {
+    "feed": { "food": 25 },
+    "pet": { "fun": 5 },
+    "play": { "fun": 20, "energyCost": 15, "xp": 5 },
+    "walk": { "xp": 5 },
+    "meetingAck": { "fun": 5, "xp": 10 },
+    "meetingIgnored": { "funCost": 15 }
+  },
+  "mood": { "hungryBelow": 30, "sadBelow": 35, "happyFunMin": 70, "happyFoodMin": 50, "warnBelow": 30 },
+  "behavior": {
+    "outingEnergyMin": 40,
+    "tiredBelow": 30,
+    "outingMaxTicks": 45,
+    "outingChancePct": 2,
+    "autoSleepBelow": 10
+  },
+  "rules": [],
+  "evolution": [
+    { "level": 1, "name": "Blobby" },
+    { "level": 5, "name": "Big Blobby", "body": "#5CC48C" },
+    { "level": 10, "name": "Royal Blobby", "body": "#9C8CF0" }
+  ],
+  "scenes": {
+    "house": { "spots": { "bed": [62, 182], "bowl": [150, 182], "door": [184, 182] } },
+    "yard": { "spots": { "door": [176, 182], "tree": [70, 182] } }
+  },
+  "sounds": {
+    "meeting": "meeting:d=8,o=6,b=180:c,e,g,p,c,e,g",
+    "notify": "notify:d=16,o=6,b=200:e,g",
+    "happy": "happy:d=16,o=6,b=200:c,e,g,c7"
+  }
+}

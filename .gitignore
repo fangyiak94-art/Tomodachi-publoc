@@ -1,0 +1,10 @@
+build*/
+.pio/
+.vscode/
+.deskpet-state/
+shots/
+fs/secrets.json
+fs/settings.json
+fs/save.json
+*.ppm
+__pycache__/

@@ -1,0 +1,61 @@
+name: CI
+
+on:
+  push:
+  pull_request:
+
+jobs:
+  engine:
+    name: Engine (PC) - tests, gate scenario, sanitizers
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install SDL2
+        run: sudo apt-get update && sudo apt-get install -y libsdl2-dev
+      - name: Build
+        run: |
+          cmake -S . -B build -DCMAKE_BUILD_TYPE=Release
+          cmake --build build -j
+      - name: Unit tests
+        run: ./build/deskpet_tests
+      - name: MVP gate scenario (walks, eats, sleeps, goes outside)
+        run: ./build/deskpet_headless --out shots
+      - name: Sanitizer build
+        run: |
+          cmake -S . -B build-asan -DDESKPET_SANITIZE=ON -DDESKPET_SIM=OFF
+          cmake --build build-asan -j
+          ./build-asan/deskpet_tests
+          ./build-asan/deskpet_headless --out shots-asan
+      - name: Convert screenshots
+        run: |
+          pip install pillow
+          python3 -c "import glob; from PIL import Image; [Image.open(f).save(f[:-4] + '.png') for f in glob.glob('shots/*.ppm')]"
+      - uses: actions/upload-artifact@v4
+        with:
+          name: screenshots
+          path: shots/*.png
+
+  firmware:
+    name: Firmware (ESP32-C3)
+    runs-on: ubuntu-24.04
+    strategy:
+      fail-fast: false
+      matrix:
+        env: [esp32c3, esp32c3-chronos]
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/cache@v4
+        with:
+          path: ~/.platformio
+          key: pio-${{ hashFiles('platformio.ini') }}
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - run: pip install platformio
+      - name: Build firmware
+        run: pio run -e ${{ matrix.env }}
+      - name: Build LittleFS image (packs)
+        if: matrix.env == 'esp32c3'
+        run: pio run -e esp32c3 -t buildfs
+      - name: Size report
+        run: pio run -e ${{ matrix.env }} -t size

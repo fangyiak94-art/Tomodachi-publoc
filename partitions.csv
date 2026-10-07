@@ -1,0 +1,7 @@
+# 4 MB flash: ~1.5 MB app, ~2.4 MB LittleFS for packs (replaces "Huge APP").
+# Name,   Type, SubType,  Offset,   Size
+nvs,      data, nvs,      0x9000,   0x5000
+otadata,  data, ota,      0xe000,   0x2000
+app0,     app,  ota_0,    0x10000,  0x180000
+spiffs,   data, spiffs,   0x190000, 0x260000
+coredump, data, coredump, 0x3F0000, 0x10000

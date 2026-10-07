@@ -1,0 +1,496 @@
+#include "deskpet/engine.h"
+
+#include "layout.h"
+
+#include <ArduinoJson.h>
+
+#include <algorithm>
+#include <cstdarg>
+#include <cstdio>
+#include <ctime>
+
+namespace dp {
+
+const char* screenName(Screen s) {
+  switch (s) {
+    case Screen::Home: return "home";
+    case Screen::Stats: return "stats";
+    case Screen::Agenda: return "agenda";
+    case Screen::Actions: return "actions";
+    case Screen::Settings: return "settings";
+    case Screen::Upload: return "upload";
+  }
+  return "?";
+}
+
+Engine::Engine(const Platform& platform) : p_(platform) {
+  pack_.cfg = defaultPack();
+  hudRect_ = Rect(70, 8, 100, 50);
+}
+
+void Engine::log(const std::string& line) {
+  if (p_.log) p_.log(line.c_str());
+}
+
+int64_t Engine::now() { return p_.clock ? p_.clock->epoch() : 0; }
+
+bool Engine::night() {
+  int64_t t = now();
+  if (t <= 0) return false;
+  int64_t local = t + int64_t(p_.clock->utcOffsetMinutes()) * 60;
+  int hour = static_cast<int>((local / 3600) % 24);
+  return hour < 6 || hour >= 19;
+}
+
+PetLook Engine::look() const {
+  PetLook l;
+  l.mood = pet_.mood();
+  l.body = pack_.cfg.body;
+  if (const EvolutionStage* st = pack_.cfg.stageFor(pet_.level()))
+    if (st->hasBody) l.body = st->body;
+  return l;
+}
+
+// ------------------------------------------------------------------ setup
+
+void Engine::begin() {
+  loadSettings();
+  world_.reset(pack_.cfg, p_.seed);
+  restorePet();
+  lastLevel_ = pet_.level();
+  lastTickMs_ = lastSaveMs_ = p_.clock->millis();
+  applyBrightness();
+  invalidateAll();
+  started_ = true;
+  log("deskpet: started with pack '" + pack_.cfg.id + "'");
+  render();
+}
+
+std::vector<std::string> Engine::listPacks() {
+  std::vector<std::string> ids;
+  if (p_.storage) p_.storage->listDirs("/packs", ids);
+  ids.erase(std::remove_if(ids.begin(), ids.end(),
+                           [](const std::string& s) { return !isSafeFileName(s); }),
+            ids.end());
+  std::sort(ids.begin(), ids.end());
+  return ids;
+}
+
+bool Engine::selectPack(const std::string& id) {
+  if (!p_.storage) return false;
+  LoadedPack next;
+  std::string err;
+  if (!loadPack(*p_.storage, id, next, err)) {
+    packError_ = err;
+    log("deskpet: pack '" + id + "' rejected: " + err);
+    return false;
+  }
+  packError_.clear();
+  pack_ = std::move(next);
+  pack_.rebind();
+  pet_.setTuning(pack_.cfg.tuning);
+  world_.setPack(pack_.cfg);
+  log("deskpet: loaded pack '" + pack_.cfg.id + "' v" + pack_.cfg.version);
+  if (started_) {
+    saveSettings();
+    invalidateAll();
+  }
+  return true;
+}
+
+void Engine::loadSettings() {
+  std::string json, packId = "blobby";
+  if (p_.storage && p_.storage->read("/settings.json", json, 2048)) {
+    JsonDocument doc;
+    if (!deserializeJson(doc, json)) {
+      packId = doc["pack"] | "blobby";
+      brightness_ = std::min(255, std::max(20, doc["brightness"] | 200));
+      dnd_ = doc["dnd"] | false;
+    }
+  }
+  if (!selectPack(packId)) {
+    std::vector<std::string> ids = listPacks();
+    bool ok = false;
+    for (const std::string& id : ids)
+      if (id != packId && selectPack(id)) { ok = true; break; }
+    if (!ok) {
+      pack_ = LoadedPack();
+      pack_.cfg = defaultPack();
+      pet_.setTuning(pack_.cfg.tuning);
+      log("deskpet: using built-in pack");
+    }
+  }
+}
+
+void Engine::saveSettings() {
+  if (!p_.storage) return;
+  JsonDocument doc;
+  doc["pack"] = pack_.cfg.id;
+  doc["brightness"] = brightness_;
+  doc["dnd"] = dnd_;
+  std::string out;
+  serializeJson(doc, out);
+  p_.storage->write("/settings.json", out);
+}
+
+void Engine::save() {
+  if (p_.storage) p_.storage->write("/save.json", pet_.toJson(now()));
+  lastSaveMs_ = p_.clock->millis();
+}
+
+void Engine::restorePet() {
+  std::string json;
+  int64_t savedAt = 0;
+  if (!p_.storage || !p_.storage->read("/save.json", json, 1024) || !pet_.fromJson(json, savedAt))
+    return;
+  int64_t t = now();
+  if (savedAt > 0 && t > savedAt) {
+    // Catch up on time spent powered off (capped at three days).
+    float hours = static_cast<float>(std::min<int64_t>(t - savedAt, 72 * 3600)) / 3600.0f;
+    pet_.elapse(hours);
+  }
+  if (pet_.asleep()) world_.placeInBed();
+}
+
+// ------------------------------------------------------------------- loop
+
+void Engine::loop() {
+  const uint32_t ms = p_.clock->millis();
+
+  // Input.
+  InputEvent ev;
+  int16_t tx = 0, ty = 0;
+  bool down = p_.input && p_.input->readTouch(tx, ty);
+  bool back = p_.input && p_.input->readBack();
+  if (gestures_.update(down, tx, ty, back, ms, ev)) handleGesture(ev);
+  while (p_.input && p_.input->pollGesture(ev)) handleGesture(ev);
+
+  pollSources(ms);
+  applyAlertSignals(alerts_.update(now(), ms, pet_.asleep()));
+
+  // Fixed-step behaviour. If we fell far behind (debugger, blocking fetch),
+  // resync instead of fast-forwarding the animation.
+  uint32_t behind = ms - lastTickMs_;
+  if (behind > kTickMs * 8) lastTickMs_ = ms - kTickMs;
+  while (ms - lastTickMs_ >= kTickMs) {
+    lastTickMs_ += kTickMs;
+    tick();
+  }
+
+  tune_.update(p_.buzzer, ms);
+  if (screen_ == Screen::Upload && p_.uploader) p_.uploader->loop();
+  if (ms - lastSaveMs_ >= kSaveEveryMs) save();
+  render();
+}
+
+void Engine::pollSources(uint32_t ms) {
+  (void)ms;
+  if (p_.calendar) {
+    std::vector<CalendarEvent> evs;
+    if (p_.calendar->poll(evs)) {
+      alerts_.setEvents(evs);
+      log("deskpet: calendar has " + std::to_string(evs.size()) + " events");
+    }
+  }
+  if (p_.notifications) {
+    Notification n;
+    while (p_.notifications->poll(n)) {
+      if (!alerts_.pushNotification(n, dnd_)) log("deskpet: notification muted (DND)");
+    }
+  }
+}
+
+void Engine::applyAlertSignals(const AlertSignals& s) {
+  if (s.meetingRaised) {
+    if (pet_.asleep()) world_.wake(pet_);
+    if (const char* t = pack_.cfg.sound("meeting")) tune_.play(t, 0);
+    log("deskpet: meeting alert '" + alerts_.meeting().title + "'");
+  }
+  if (s.meetingIgnored) {
+    pet_.meetingIgnored();
+    log("deskpet: meeting ignored");
+  }
+  if (s.notificationShown) {
+    world_.notified();
+    if (!dnd_)
+      if (const char* t = pack_.cfg.sound("notify")) tune_.play(t, 0);
+  }
+  if (s.changed) invalidateAll();
+}
+
+void Engine::tick() {
+  const Rect before = petBounds(pack_, world_.view());
+  const bool bowlBefore = world_.view().bowlFull;
+  const bool asleepBefore = pet_.asleep();
+
+  pet_.elapse(static_cast<float>(kTickMs) * timeScale_ / 3600000.0f);
+  world_.tick(pet_);
+
+  if (pet_.level() > lastLevel_) {
+    lastLevel_ = pet_.level();
+    if (const char* t = pack_.cfg.sound("happy")) tune_.play(t, 0);
+    log("deskpet: level up to " + std::to_string(lastLevel_));
+  }
+  if (asleepBefore != pet_.asleep()) {
+    applyBrightness();
+    save();
+  }
+
+  if (world_.sceneChangedSinceLastCheck()) {
+    if (screen_ == Screen::Home) invalidateAll();
+  } else if (screen_ == Screen::Home) {
+    invalidate(Rect::unite(before, petBounds(pack_, world_.view())));
+    if (bowlBefore != world_.view().bowlFull) invalidate(bowlBounds(pack_.cfg));
+  }
+
+  // HUD and info screens only redraw when what they show changed.
+  uint32_t h = contentHash();
+  if (h != shownHash_) {
+    shownHash_ = h;
+    if (screen_ == Screen::Home) invalidate(hudRect_);
+    else if (screen_ != Screen::Actions) invalidateAll();
+  }
+}
+
+uint32_t Engine::contentHash() {
+  uint32_t h = 2166136261u;
+  auto mix = [&h](uint32_t v) { h = (h ^ v) * 16777619u; };
+  int64_t t = now();
+  mix(static_cast<uint32_t>(t / 60));
+  mix(dnd_);
+  mix(static_cast<uint32_t>(brightness_));
+  if (screen_ == Screen::Home) {
+    const PetStats& s = pet_.stats();
+    mix(pet_.isLow(s.food) || pet_.isLow(s.fun) || pet_.isLow(s.energy));
+  } else if (screen_ == Screen::Stats) {
+    const PetStats& s = pet_.stats();
+    mix(static_cast<uint32_t>(s.food));
+    mix(static_cast<uint32_t>(s.fun));
+    mix(static_cast<uint32_t>(s.energy));
+    mix(s.xp);
+    mix(static_cast<uint32_t>(pet_.mood()));
+  } else if (screen_ == Screen::Agenda) {
+    for (const CalendarEvent& e : alerts_.events()) mix(static_cast<uint32_t>(e.start));
+  } else if (screen_ == Screen::Upload && p_.uploader) {
+    for (const std::string& l : p_.uploader->statusLines())
+      for (char ch : l) mix(static_cast<uint8_t>(ch));
+  }
+  if (p_.connectivity && screen_ == Screen::Settings) {
+    ConnectivityStatus cs = p_.connectivity();
+    for (const char* q = cs.wifi; *q; ++q) mix(static_cast<uint8_t>(*q));
+    for (const char* q = cs.phone; *q; ++q) mix(static_cast<uint8_t>(*q));
+  }
+  return h;
+}
+
+// ----------------------------------------------------------------- input
+
+void Engine::goTo(Screen s) {
+  if (screen_ == Screen::Upload && s != Screen::Upload && p_.uploader) p_.uploader->stop();
+  screen_ = s;
+  if (s == Screen::Upload && p_.uploader) p_.uploader->start();
+  shownHash_ = contentHash();
+  invalidateAll();
+}
+
+void Engine::toggleDnd() {
+  dnd_ = !dnd_;
+  saveSettings();
+  invalidateAll();
+}
+
+void Engine::setBrightness(int level) {
+  brightness_ = std::min(255, std::max(20, level));
+  applyBrightness();
+  saveSettings();
+}
+
+void Engine::applyBrightness() {
+  int level = pet_.asleep() ? std::min(brightness_, 24) : brightness_;
+  if (level != appliedBrightness_ && p_.display) {
+    p_.display->setBrightness(static_cast<uint8_t>(level));
+    appliedBrightness_ = level;
+  }
+}
+
+void Engine::handleGesture(const InputEvent& e) {
+  if (e.gesture == Gesture::None) return;
+  if (alerts_.active() != AlertKind::None) {
+    onAlert(e);
+    return;
+  }
+  switch (screen_) {
+    case Screen::Home: onHome(e); break;
+    case Screen::Stats:
+      if (e.gesture == Gesture::SwipeRight || e.gesture == Gesture::Back) goTo(Screen::Home);
+      break;
+    case Screen::Agenda:
+      if (e.gesture == Gesture::SwipeLeft || e.gesture == Gesture::Back) goTo(Screen::Home);
+      break;
+    case Screen::Actions: onActions(e); break;
+    case Screen::Settings: onSettings(e); break;
+    case Screen::Upload:
+      if (e.gesture == Gesture::Back) {
+        goTo(Screen::Settings);
+        // New packs may have arrived; reload the current one from storage.
+        selectPack(pack_.cfg.id);
+      }
+      break;
+  }
+}
+
+void Engine::onAlert(const InputEvent& e) {
+  if (alerts_.active() == AlertKind::Meeting) {
+    if (e.gesture == Gesture::Tap) {
+      pet_.meetingAck();
+      world_.tapped(pet_);
+      alerts_.ack();
+      tune_.stop(p_.buzzer);
+    } else if (e.gesture == Gesture::LongPress) {
+      alerts_.snooze(now());
+      tune_.stop(p_.buzzer);
+    } else if (e.gesture == Gesture::Back) {
+      alerts_.dismiss();
+      tune_.stop(p_.buzzer);
+    }
+  } else if (e.gesture == Gesture::Tap || e.gesture == Gesture::Back) {
+    alerts_.dismiss();
+  }
+  applyAlertSignals(alerts_.update(now(), p_.clock->millis(), pet_.asleep()));
+}
+
+void Engine::onHome(const InputEvent& e) {
+  switch (e.gesture) {
+    case Gesture::Tap: world_.tapped(pet_); break;
+    case Gesture::DoubleTap:
+      if (pet_.asleep()) world_.wake(pet_);
+      else world_.requestSleep(pet_);
+      applyBrightness();
+      break;
+    case Gesture::LongPress: toggleDnd(); break;
+    case Gesture::SwipeLeft: goTo(Screen::Stats); break;
+    case Gesture::SwipeRight: goTo(Screen::Agenda); break;
+    case Gesture::SwipeUp: goTo(Screen::Actions); break;
+    case Gesture::SwipeDown: goTo(Screen::Settings); break;
+    default: break;
+  }
+}
+
+void Engine::onActions(const InputEvent& e) {
+  if (e.gesture == Gesture::SwipeDown || e.gesture == Gesture::Back) {
+    goTo(Screen::Home);
+    return;
+  }
+  if (e.gesture != Gesture::Tap) return;
+  int hit = -1;
+  for (int i = 0; i < 4; ++i)
+    if (layout::kActionTiles[i].contains(e.x, e.y)) hit = i;
+  if (hit < 0) return;
+  switch (hit) {
+    case 0: world_.requestFeed(pet_); break;
+    case 1: world_.requestPlay(pet_); break;
+    case 2:
+      if (pet_.asleep()) world_.wake(pet_);
+      else world_.requestSleep(pet_);
+      break;
+    case 3:
+      if (world_.view().scene == SceneId::Yard) world_.requestHome(pet_);
+      else world_.requestWalk(pet_);
+      break;
+  }
+  applyBrightness();
+  goTo(Screen::Home);
+}
+
+void Engine::onSettings(const InputEvent& e) {
+  if (e.gesture == Gesture::SwipeUp || e.gesture == Gesture::Back) {
+    goTo(Screen::Home);
+    return;
+  }
+  if (e.gesture == Gesture::LongPress) {
+    toggleDnd();
+    return;
+  }
+  if (e.gesture != Gesture::Tap) return;
+  using namespace layout;
+  if (e.y >= kRowBrightness && e.y < kRowBrightness + kRowH) {
+    setBrightness(brightness_ + (e.x < kScreenW / 2 ? -40 : 40));
+  } else if (e.y >= kRowDnd && e.y < kRowDnd + kRowH) {
+    toggleDnd();
+  } else if (e.y >= kRowPack && e.y < kRowPack + kRowH) {
+    std::vector<std::string> ids = listPacks();
+    if (!ids.empty()) {
+      auto it = std::find(ids.begin(), ids.end(), pack_.cfg.id);
+      size_t start = it == ids.end() ? 0 : static_cast<size_t>(it - ids.begin()) + 1;
+      for (size_t i = 0; i < ids.size(); ++i)
+        if (selectPack(ids[(start + i) % ids.size()])) break;
+    }
+  } else if (e.y >= kRowUpload) {
+    goTo(Screen::Upload);
+    return;
+  }
+  invalidateAll();
+}
+
+// ------------------------------------------------------------- rendering
+
+void Engine::invalidate(const Rect& r0) {
+  Rect r = Rect::intersect(r0, Rect(0, 0, kScreenW, kScreenH));
+  if (r.empty()) return;
+  for (int i = 0; i < dirtyCount_; ++i) {
+    if (dirty_[i].intersects(r)) {
+      dirty_[i] = Rect::unite(dirty_[i], r);
+      return;
+    }
+  }
+  if (dirtyCount_ < kMaxDirty) {
+    dirty_[dirtyCount_++] = r;
+  } else {
+    dirty_[0] = Rect::unite(dirty_[0], r);
+  }
+}
+
+void Engine::render() {
+  if (!p_.display || dirtyCount_ == 0) return;
+  uint32_t pixels = 0;
+  for (int i = 0; i < dirtyCount_; ++i) {
+    const Rect r = dirty_[i];
+    if (r.w == kScreenW && r.h == kScreenH) ++rstats_.fullRedraws;
+    for (int y = r.y; y < r.bottom(); y += kStripRows) {
+      Rect strip(r.x, y, r.w, std::min<int>(kStripRows, r.bottom() - y));
+      Canvas c(strip_, strip);
+      drawAll(c);
+      p_.display->pushPixels(strip, strip_);
+      pixels += static_cast<uint32_t>(strip.w) * strip.h;
+    }
+  }
+  dirtyCount_ = 0;
+  ++rstats_.frames;
+  rstats_.pixelsLastFrame = pixels;
+  rstats_.pixelsTotal += pixels;
+}
+
+void Engine::drawAll(Canvas& c) {
+  switch (screen_) {
+    case Screen::Home: drawHome(c); break;
+    case Screen::Stats: drawStats(c); break;
+    case Screen::Agenda: drawAgenda(c); break;
+    case Screen::Actions: drawActions(c); break;
+    case Screen::Settings: drawSettings(c); break;
+    case Screen::Upload: drawUpload(c); break;
+  }
+  if (alerts_.active() == AlertKind::Meeting) drawMeeting(c);
+  else if (alerts_.active() == AlertKind::Notification) drawNotification(c);
+}
+
+std::string Engine::clockText(int64_t t) {
+  if (t <= 0) return "--:--";
+  int64_t local = t + int64_t(p_.clock->utcOffsetMinutes()) * 60;
+  int mins = static_cast<int>((local / 60) % (24 * 60));
+  if (mins < 0) mins += 24 * 60;
+  char buf[16];
+  std::snprintf(buf, sizeof(buf), "%02d:%02d", mins / 60, mins % 60);
+  return buf;
+}
+
+}  // namespace dp

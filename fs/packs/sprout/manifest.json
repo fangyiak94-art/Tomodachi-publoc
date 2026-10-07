@@ -1,0 +1,81 @@
+{
+  "format": 1,
+  "id": "sprout",
+  "name": "Sprout",
+  "version": "0.1.0",
+  "creature": {
+    "sprites": "sprout.dps",
+    "scale": 3,
+    "body": "#FAC45A",
+    "outline": "#78501E",
+    "animations": {
+      "idle": [
+        0
+      ],
+      "idle_happy": [
+        6
+      ],
+      "idle_sad": [
+        7
+      ],
+      "idle_hungry": [
+        8
+      ],
+      "walk": [
+        1,
+        2
+      ],
+      "sleep": [
+        3
+      ],
+      "eat": [
+        4,
+        5
+      ],
+      "play": [
+        6,
+        0
+      ]
+    }
+  },
+  "decay": {
+    "awake": {
+      "food": 12,
+      "fun": 6,
+      "energy": 8
+    },
+    "asleep": {
+      "food": 5,
+      "fun": 0,
+      "energyGain": 25
+    }
+  },
+  "mood": {
+    "hungryBelow": 35,
+    "sadBelow": 30
+  },
+  "behavior": {
+    "outingChancePct": 4,
+    "outingMaxTicks": 60
+  },
+  "rules": [
+    {
+      "stat": "energy",
+      "below": 20,
+      "mood": "sad"
+    }
+  ],
+  "evolution": [
+    {
+      "level": 1,
+      "name": "Sprout"
+    },
+    {
+      "level": 4,
+      "name": "Sapling"
+    }
+  ],
+  "sounds": {
+    "happy": "happy:d=16,o=6,b=220:g,c7,e7"
+  }
+}
